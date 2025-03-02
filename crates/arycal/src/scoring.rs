@@ -154,6 +154,8 @@ pub fn compute_peak_mapping_transitions_scores(
             let mut identifying_peak_mapped_scores = Vec::new();
             if let Some(peak_mappings_for_run) = peak_mappings.get(&current_filename) {
                 for peak_mapping in peak_mappings_for_run.iter() {
+                    log::trace!("Scoring identifying transition peak mapping for peak_id: {} for run: {}", peak_mapping.alignment_id, current_filename);
+
                     let reference_intensities = get_peak_intensities(&reference_chrom.chromatogram, peak_mapping.reference_left_width, peak_mapping.reference_right_width);
                     let aligned_intensities = get_peak_intensities(&transition_chrom, peak_mapping.aligned_left_width, peak_mapping.aligned_right_width);
 

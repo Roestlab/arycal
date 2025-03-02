@@ -404,6 +404,7 @@ impl Runner {
 
         // Check if identifying_chromatograms is empty
         if identifying_chromatograms.is_empty() {
+            log::trace!("Identifying chromatograms are empty");
             return HashMap::new();
         }
         

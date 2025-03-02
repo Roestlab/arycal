@@ -199,6 +199,20 @@ pub fn construct_mst(
     mst_edges
 }
 
+/// Validates the widths of two peaks and switches the order if necessary.
+fn validate_widths(left_width: f64, right_width: f64) -> (f64, f64) {
+    if left_width >= right_width {
+        log::trace!(
+            "Invalid widths: left_width ({}) is not smaller than right_width ({}). Switching the order.",
+            left_width,
+            right_width
+        );
+        (right_width, left_width)
+    } else {
+        (left_width, right_width)
+    }
+}
+
 /// Maps peaks across aligned chromatograms using the alignment information.
 ///
 /// # Parameters
@@ -241,27 +255,26 @@ pub fn map_peaks_across_runs(
             if let Some((aligned_feature_id, aligned_rt, aligned_left_width, aligned_right_width)) =
                 find_closest_feature(target_rt, &aligned_features, rt_tolerance)
             {
-                // println!("Found query feature mapping to reference feature: {:?}", aligned_feature_id);
+                log::trace!("Found query feature mapping to reference feature: {:?}", aligned_feature_id);
+                let (validated_left_width_ref, validated_right_width_ref) = validate_widths(
+                    ref_feature.left_width.as_ref().unwrap().as_multiple().unwrap()[i],
+                    ref_feature.right_width.as_ref().unwrap().as_multiple().unwrap()[i],
+                );
+
+                let (validated_left_width_aligned, validated_right_width_aligned) = validate_widths(
+                    aligned_left_width,
+                    aligned_right_width,
+                );
                 peak_mappings.push(PeakMapping {
-                    alignment_id, // Use the same alignment_id for the same peak across runs
+                    alignment_id, 
                     reference_feature_id: *ref_feature.feature_id.clone().unwrap(),
                     aligned_feature_id,
                     reference_rt: rt,
                     aligned_rt,
-                    reference_left_width: ref_feature
-                        .left_width
-                        .as_ref()
-                        .unwrap()
-                        .as_multiple()
-                        .unwrap()[i],
-                    reference_right_width: ref_feature
-                        .right_width
-                        .as_ref()
-                        .unwrap()
-                        .as_multiple()
-                        .unwrap()[i],
-                    aligned_left_width,
-                    aligned_right_width,
+                    reference_left_width: validated_left_width_ref,
+                    reference_right_width: validated_right_width_ref,
+                    aligned_left_width: validated_left_width_aligned,
+                    aligned_right_width: validated_right_width_aligned,
                     reference_filename: ref_feature.basename.clone(),
                     aligned_filename: aligned_features[0].basename.clone(),
                     label: 1,
@@ -276,37 +289,21 @@ pub fn map_peaks_across_runs(
                 });
             } else {
                 // Recover missing peak in the query chromatogram
-                // println!("Recovering missing peak in query chromatogram for reference RT: {:?}", rt);
+                log::trace!("Recovering missing peak in query chromatogram for reference RT: {:?}", rt);
+                let (validated_left_width_ref, validated_right_width_ref) = validate_widths(
+                    ref_feature.left_width.as_ref().unwrap().as_multiple().unwrap()[i],
+                    ref_feature.right_width.as_ref().unwrap().as_multiple().unwrap()[i],
+                );
                 peak_mappings.push(PeakMapping {
                     alignment_id, // Use the same alignment_id for the same peak across runs
                     reference_feature_id: *ref_feature.feature_id.clone().unwrap(),
                     aligned_feature_id: -1, // Use -1 to indicate a missing peak
                     reference_rt: rt,
                     aligned_rt: target_rt,
-                    reference_left_width: ref_feature
-                        .left_width
-                        .as_ref()
-                        .unwrap()
-                        .as_multiple()
-                        .unwrap()[i],
-                    reference_right_width: ref_feature
-                        .right_width
-                        .as_ref()
-                        .unwrap()
-                        .as_multiple()
-                        .unwrap()[i],
-                    aligned_left_width: ref_feature
-                        .left_width
-                        .as_ref()
-                        .unwrap()
-                        .as_multiple()
-                        .unwrap()[i], // Use reference values as placeholder
-                    aligned_right_width: ref_feature
-                        .right_width
-                        .as_ref()
-                        .unwrap()
-                        .as_multiple()
-                        .unwrap()[i], // Use reference values as placeholder
+                    reference_left_width: validated_left_width_ref,
+                    reference_right_width: validated_right_width_ref,
+                    aligned_left_width: validated_left_width_ref, // Use reference values as placeholder
+                    aligned_right_width: validated_right_width_ref, // Use reference values as placeholder
                     reference_filename: ref_feature.basename.clone(),
                     aligned_filename: aligned_features[0].basename.clone(),
                     label: 1,
@@ -406,7 +403,7 @@ fn remove_overlapping_peaks(peak_mappings: Vec<PeakMapping>) -> Vec<PeakMapping>
         let mut prev_peak: Option<PeakMapping> = None;
         for peak in sorted_peaks {
             if let Some(prev) = &prev_peak {
-                // println!("Checking for overlapping peaks: Peak 1 (RT: {}), Peak 2 (RT: {})", prev.reference_rt, peak.reference_rt);
+                log::trace!("Checking for overlapping peaks: Peak 1 (RT: {}), Peak 2 (RT: {})", prev.reference_rt, peak.reference_rt);
                 // Check if the current peak overlaps with the previous peak
                 let current_left = peak.reference_left_width;
                 let current_right = peak.reference_right_width;
@@ -424,13 +421,13 @@ fn remove_overlapping_peaks(peak_mappings: Vec<PeakMapping>) -> Vec<PeakMapping>
                     if peak.aligned_feature_id != -1 || peak.reference_feature_id != -1 {
                         // Prefer the peak with a valid feature ID
                         if prev.aligned_feature_id == -1 && prev.reference_feature_id == -1 {
-                            // println!("Removing overlapping peaks with missing feature IDs");
+                            log::trace!("Removing overlapping peaks with missing feature IDs");
                             // Replace the previous peak with the current one
                             non_overlapping_peaks.pop();
                             non_overlapping_peaks.push(peak.clone());
                         }
                     } else {
-                        // println!("Both peaks have missing feature IDs: computing a consensus peak");
+                        log::trace!("Both peaks have missing feature IDs: computing a consensus peak");
                         // Both peaks have missing IDs: compute a consensus peak
                         let consensus_peak = PeakMapping {
                             alignment_id: peak.alignment_id,
