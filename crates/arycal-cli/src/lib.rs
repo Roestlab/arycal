@@ -83,7 +83,7 @@ impl Runner {
         let results: Vec<
             Result<HashMap<i32, PrecursorAlignmentResult>, anyhow::Error>,
         > = precursor_map
-            .par_chunks(self.parameters.alignment.batch_size.unwrap_or_default()).take(5) 
+            .par_chunks(self.parameters.alignment.batch_size.unwrap_or_default()) 
             .map(|batch| {
                 let mut batch_results = Vec::new();
                 let mut progress = None;
