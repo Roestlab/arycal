@@ -1,0 +1,8 @@
+/target
+/spyogenes
+/.vscode
+*.png
+*.json
+*.ipynb
+*.log
+*.parquet
