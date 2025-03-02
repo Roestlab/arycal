@@ -144,9 +144,9 @@ pub fn compute_peak_mapping_transitions_scores(
 
         let reference_filename = aligned_chromatograms.iter()
             .find(|chrom| chrom.chromatogram.metadata.get("basename").unwrap() == &current_filename)
-            .unwrap();
+            .unwrap().rt_mapping[0].get("run1").unwrap();
         let reference_chrom = aligned_chromatograms.iter()
-            .find(|chrom| chrom.chromatogram.metadata.get("basename").unwrap() == reference_filename.chromatogram.metadata.get("reference_run").unwrap())
+            .find(|chrom| chrom.chromatogram.metadata.get("basename").unwrap() == reference_filename)
             .unwrap();
 
         // Create a temporary HashMap to store the results
