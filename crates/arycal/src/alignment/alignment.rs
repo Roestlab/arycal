@@ -200,7 +200,7 @@ pub fn construct_mst(
 }
 
 /// Validates the widths of two peaks and switches the order if necessary.
-fn validate_widths(left_width: f64, right_width: f64) -> (f64, f64) {
+pub fn validate_widths(left_width: f64, right_width: f64) -> (f64, f64) {
     if left_width >= right_width {
         log::trace!(
             "Invalid widths: left_width ({}) is not smaller than right_width ({}). Switching the order.",
