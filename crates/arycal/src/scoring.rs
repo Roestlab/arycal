@@ -5,7 +5,7 @@ use rand::{seq::SliceRandom, Rng};
 
 use arycal_cloudpath::sqmass::{Chromatogram, TransitionGroup};
 use arycal_common::{AlignedTransitionScores, FullTraceAlignmentScores, PeakMapping};
-use crate::{alignment::alignment::AlignedChromatogram, stats::{calc_mi_score, calc_mi_to_many_score, calc_xcorr_coelution_score, calc_xcorr_shape_score, calc_xcorr_shape_to_many_score, calc_xcorr_to_many_score}};
+use crate::{alignment::alignment::{validate_widths, AlignedChromatogram}, stats::{calc_mi_score, calc_mi_to_many_score, calc_xcorr_coelution_score, calc_xcorr_shape_score, calc_xcorr_shape_to_many_score, calc_xcorr_to_many_score}};
 
 
 pub fn compute_alignment_scores(
@@ -297,15 +297,19 @@ fn get_array_peak_intensities(
 /// # Returns
 /// A trimmed vector.
 fn trim_vector(x: &Vec<f64>, start_idx: usize, end_idx: usize) -> Vec<f64> {
-    // Ensure the indices are valid
-    if start_idx >= x.len() || end_idx >= x.len() {
-        panic!("Invalid indices, start_idx: {}, end_idx: {}, vector length: {}", start_idx, end_idx, x.len());
-    }
+    // // Ensure the indices are valid
+    // if start_idx >= x.len() || end_idx >= x.len() {
+    //     panic!("Invalid indices, start_idx: {}, end_idx: {}, vector length: {}", start_idx, end_idx, x.len());
+    // }
 
-    // Check if the start index is greater than the end index
-    if start_idx > end_idx {
-        panic!("Start index is greater than end index");
-    }
+    // // Check if the start index is greater than the end index
+    // if start_idx > end_idx {
+    //     panic!("Start index is greater than end index");
+    // }
+
+    let (valid_start_idx, valid_end_index) = validate_widths(start_idx as f64, end_idx as f64);
+    let start_idx = valid_start_idx as usize;
+    let end_idx = valid_end_index as usize;
 
     x[start_idx..end_idx].to_vec()
 }
