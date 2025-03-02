@@ -400,7 +400,12 @@ impl Runner {
             .map(|access| {
                 access.read_chromatograms("NATIVE_ID", identifying_transitions_ids_str.clone(), group_id.clone())
             })
-            .collect::<Result<Vec<_>, _>>().unwrap();
+            .collect::<Result<Vec<_>, _>>().unwrap_or(Vec::new());
+
+        // Check if identifying_chromatograms is empty
+        if identifying_chromatograms.is_empty() {
+            return HashMap::new();
+        }
         
         // Score Identifying transitions
         let aligned_identifying_trgrps = apply_post_alignment_to_trgrp(identifying_chromatograms, aligned_chromatograms.clone(), common_rt_space, &self.parameters.alignment);
