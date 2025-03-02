@@ -56,6 +56,9 @@ pub fn initialize_mi_matrix(intensities: &Vec<Array1<f64>>) -> Array2<f64> {
 
 /// Compute the normalized cross-correlation between two intensity arrays.
 pub fn normalized_cross_correlation(intensities1: &Array1<f64>, intensities2: &Array1<f64>) -> Array1<f64> {
+    let min_len = intensities1.len().min(intensities2.len());
+    let intensities1 = &intensities1.slice(s![..min_len]);
+    let intensities2 = &intensities2.slice(s![..min_len]);
     let mean1 = intensities1.mean().unwrap_or(0.0);
     let mean2 = intensities2.mean().unwrap_or(0.0);
     let std1 = intensities1.std(0.0);
