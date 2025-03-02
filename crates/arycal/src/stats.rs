@@ -122,16 +122,17 @@ pub fn compute_max_rank_vector(rank_vec: &Vec<Vec<u32>>) -> Vec<u32> {
     rank_vec.iter().map(|ranks| *ranks.iter().max().unwrap_or(&1)).collect()
 }
 
-/// Compute ranked mutual information between two ranked intensity vectors.
 pub fn ranked_mutual_information(ranks1: &Vec<u32>, ranks2: &Vec<u32>, max_rank1: u32, max_rank2: u32) -> f64 {
     let mut mi_score = 0.0;
-    for i in 0..ranks1.len() {
+    let min_len = ranks1.len().min(ranks2.len()); 
+    for i in 0..min_len {
         if ranks1[i] == ranks2[i] {
             mi_score += 1.0;
         }
     }
     mi_score / ((max_rank1 + max_rank2) as f64 / 2.0)
 }
+
 
 /// Compute cross-correlation coelution score.
 pub fn calc_xcorr_coelution_score(intensities1: &Array1<f64>, intensities2: &Array1<f64>) -> f64 {
