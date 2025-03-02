@@ -295,6 +295,16 @@ fn get_array_peak_intensities(
 /// # Returns
 /// A trimmed vector.
 fn trim_vector(x: &Vec<f64>, start_idx: usize, end_idx: usize) -> Vec<f64> {
+    // Ensure the indices are valid
+    if start_idx >= x.len() || end_idx >= x.len() {
+        panic!("Invalid indices, start_idx: {}, end_idx: {}, vector length: {}", start_idx, end_idx, x.len());
+    }
+
+    // Check if the start index is greater than the end index
+    if start_idx > end_idx {
+        panic!("Start index is greater than end index");
+    }
+
     x[start_idx..end_idx].to_vec()
 }
 
@@ -354,6 +364,14 @@ pub fn create_decoy_peaks_by_shuffling(
         // Assign the shuffled aligned peak attributes back to the peaks
         for (i, peak) in peaks.iter_mut().enumerate() {
             peak.aligned_rt = aligned_rts[i];
+
+            // Ensure the left width is less than the right width
+            if aligned_left_widths[i] > aligned_right_widths[i] {
+                let temp = aligned_left_widths[i];
+                aligned_left_widths[i] = aligned_right_widths[i];
+                aligned_right_widths[i] = temp;
+            }
+
             peak.aligned_left_width = aligned_left_widths[i];
             peak.aligned_right_width = aligned_right_widths[i];
             peak.aligned_feature_id = -1; // Mark as decoy
