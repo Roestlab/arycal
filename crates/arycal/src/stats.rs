@@ -37,19 +37,45 @@ pub fn initialize_mi_matrix(intensities: &Vec<Array1<f64>>) -> Array2<f64> {
     mi_matrix
 }
 
+// /// Compute the normalized cross-correlation between two intensity arrays.
+// pub fn normalized_cross_correlation(intensities1: &Array1<f64>, intensities2: &Array1<f64>) -> Array1<f64> {
+//     let mean1 = intensities1.mean().unwrap_or(0.0);
+//     let mean2 = intensities2.mean().unwrap_or(0.0);
+//     let std1 = intensities1.std(0.0);
+//     let std2 = intensities2.std(0.0);
+    
+//     let norm1 = (intensities1 - mean1) / std1;
+//     let norm2 = (intensities2 - mean2) / std2;
+    
+//     let mut xcorr = Array1::<f64>::zeros(intensities1.len());
+//     for i in 0..intensities1.len() {
+//         xcorr[i] = norm1.slice(s![..(intensities1.len() - i)]).dot(&norm2.slice(s![i..]));
+//     }
+//     xcorr
+// }
+
 /// Compute the normalized cross-correlation between two intensity arrays.
 pub fn normalized_cross_correlation(intensities1: &Array1<f64>, intensities2: &Array1<f64>) -> Array1<f64> {
     let mean1 = intensities1.mean().unwrap_or(0.0);
     let mean2 = intensities2.mean().unwrap_or(0.0);
     let std1 = intensities1.std(0.0);
     let std2 = intensities2.std(0.0);
-    
+
     let norm1 = (intensities1 - mean1) / std1;
     let norm2 = (intensities2 - mean2) / std2;
-    
+
     let mut xcorr = Array1::<f64>::zeros(intensities1.len());
     for i in 0..intensities1.len() {
-        xcorr[i] = norm1.slice(s![..(intensities1.len() - i)]).dot(&norm2.slice(s![i..]));
+        let slice1 = norm1.slice(s![..(intensities1.len() - i)]);
+        let slice2 = norm2.slice(s![i..]);
+
+        // Compute dot product manually
+        let mut dot_product = 0.0;
+        for (a, b) in slice1.iter().zip(slice2.iter()) {
+            dot_product += a * b;
+        }
+
+        xcorr[i] = dot_product;
     }
     xcorr
 }
