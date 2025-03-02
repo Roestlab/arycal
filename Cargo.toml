@@ -1,0 +1,16 @@
+[workspace]
+members = [
+    "crates/arycal-common",
+    "crates/arycal/",
+    "crates/arycal-cli/",
+    "crates/arycal-cloudpath/", 
+    "crates/arycal-gui", 
+]
+
+resolver = "2"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+debug = true

@@ -1,0 +1,27 @@
+[package]
+name = "arycal-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+arycal-common = { path = "../arycal-common/"}
+arycal-cloudpath = { path = "../arycal-cloudpath/"}
+
+rayon = "1.5.1"
+log = "0.4.14"
+ndarray = "0.15"
+# ndarray = { version = "0.15", features = ["blas"] }
+# blas-src = { version = "0.10", features = ["openblas"] }
+rusqlite = "0.33.0"  # For SQLite database interaction
+r2d2 = "0.8.0"       # Connection pooling
+r2d2_sqlite = "0.26.0" # SQLite connection manager for r2d2
+nalgebra = "0.33.0"
+anyhow = "1.0"
+union-find = "0.4.3"
+rand = "0.9.0"
+rustfft = "6.2.0"
+fftconvolve = "0.1.1"
+dtw_rs = "0.9.5"
+
+# linfa = "0.7.1"
+# linfa-clustering = "0.7.1"

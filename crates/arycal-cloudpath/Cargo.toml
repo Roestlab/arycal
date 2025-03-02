@@ -1,0 +1,19 @@
+[package]
+name = "arycal-cloudpath"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+arycal-common = { path = "../arycal-common/"}
+
+log = "0.4.0"
+serde = { version="1.0", features = ["derive"] }
+serde_json = "1.0"
+rusqlite = "0.33.0"  # For SQLite database interaction
+r2d2 = "0.8.0"       # Connection pooling
+r2d2_sqlite = "0.26.0" # SQLite connection manager for r2d2
+flate2 = "1.0"     # For compression (if needed)
+bytemuck = "1.7"
+ordered-float = "5.0.0"
+savgol-rs = "0.1.0"
+anyhow = "1.0"
