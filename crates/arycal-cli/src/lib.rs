@@ -244,6 +244,7 @@ impl Runner {
         /* ------------------------------------------------------------------ */
         /* Step 3. Score Algined TICs                                         */
         /* ------------------------------------------------------------------ */
+        log::trace!("Computing full trace alignment scores");
         let alignment_scores = compute_alignment_scores(aligned_chromatograms.clone());
 
 
@@ -318,7 +319,7 @@ impl Runner {
         /* ------------------------------------------------------------------ */
         /* Step 5. Score Aligned Peaks                                        */
         /* ------------------------------------------------------------------ */
-        
+        log::trace!("Computing peak mapping scores");
         let scored_peak_mappings =
             compute_peak_mapping_scores(aligned_chromatograms.clone(), mapped_prec_peaks.clone());
 
@@ -331,7 +332,7 @@ impl Runner {
             log::trace!("Creating decoy peaks by picking random regions in the query XIC");
             decoy_peak_mappings = create_decoy_peaks_by_random_regions(&aligned_chromatograms.clone(), &mapped_prec_peaks.clone(), self.parameters.alignment.decoy_window_size.unwrap_or_default());
         }
-
+        log::trace!("Computing peak mapping scores for decoy peaks");
         let scored_decoy_peak_mappings =
             compute_peak_mapping_scores(aligned_chromatograms.clone(), decoy_peak_mappings.clone());
 
@@ -355,6 +356,7 @@ impl Runner {
         /* ------------------------------------------------------------------ */
 
         let identifying_peak_mapping_scores: HashMap<String, Vec<AlignedTransitionScores>> = if self.parameters.filters.include_identifying_transitions.unwrap_or_default() {
+            log::trace!("Processing identifying transitions - aligning and scoring");
             let id_peak_scores = self.process_identifying_transitions(group_id.clone(), precursor, aligned_chromatograms.clone(), all_peak_mappings.clone(), smoothed_tics[0].retention_times.clone());
             id_peak_scores
         } else {
