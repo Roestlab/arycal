@@ -64,21 +64,25 @@ pub fn normalized_cross_correlation(intensities1: &Array1<f64>, intensities2: &A
     let norm1 = (intensities1 - mean1) / std1;
     let norm2 = (intensities2 - mean2) / std2;
 
-    let mut xcorr = Array1::<f64>::zeros(intensities1.len());
-    for i in 0..intensities1.len() {
-        let slice1 = norm1.slice(s![..(intensities1.len() - i)]);
-        let slice2 = norm2.slice(s![i..]);
+    let len = intensities1.len();
+    let mut xcorr = Array1::<f64>::zeros(len);
 
-        // Compute dot product manually
-        let mut dot_product = 0.0;
-        for (a, b) in slice1.iter().zip(slice2.iter()) {
-            dot_product += a * b;
+    for i in 0..len {
+        let valid_len = len - i;
+        if valid_len == 0 {
+            break;
         }
+        
+        let slice1 = &norm1.slice(s![..valid_len]);
+        let slice2 = &norm2.slice(s![i..(i + valid_len)]);
 
+        let dot_product: f64 = slice1.iter().zip(slice2.iter()).map(|(a, b)| a * b).sum();
+        
         xcorr[i] = dot_product;
     }
     xcorr
 }
+
 
 /// Get the max peak from a cross-correlation array.
 pub fn xcorr_array_get_max_peak(xcorr: &Array1<f64>) -> (f64, f64) {
