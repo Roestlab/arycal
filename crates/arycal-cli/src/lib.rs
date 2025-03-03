@@ -240,7 +240,6 @@ impl Runner {
                 for precursor in batch {
                     let result = self.process_precursor(precursor).map_err(|e| ArycalError::Custom(e.to_string()));
                     batch_results.push(result);
-                    batch_results.push(result);
                     if log::Level::Trace != log::max_level() {
                         progress.as_ref().expect("The Progress tqdm logger is not enabled").inc();
                     }
