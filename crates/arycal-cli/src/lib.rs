@@ -191,7 +191,8 @@ impl Runner {
         let size = world.size();  // Total number of processes
 
         // Log MPI initialization details
-        log::info!("MPI initialized: rank = {}, size = {}", rank, size);
+        let hostname = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
+        log::info!("MPI initialized: rank = {}, size = {}, hostname = {}", rank, size, hostname);
 
         // Split the precursor_map into chunks for each process
         let chunk_size = self.precursor_map.len() / size as usize;
@@ -678,7 +679,7 @@ impl Runner {
     ) -> Result<()> {
         // Ensure the FEATURE_ALIGNMENT table exists
         for osw_access in feature_access {
-            osw_access.create_feature_ms2_alignment_table()?;
+            osw_access.create_feature_alignment_table()?;
         }
     
         let mut batch = Vec::new();
