@@ -249,20 +249,24 @@ impl Runner {
             .flatten()
             .collect();
 
+        // Serialize local_results into bytes
+        let serialized_results = bincode::serialize(&local_results)?;
+
         // Gather results to the root process
         let gathered_results = if rank == 0 {
             let mut results = Vec::new();
             results.extend(local_results);
 
             for process_rank in 1..size {
-                let mut received_results: Vec<Result<HashMap<i32, PrecursorAlignmentResult>, anyhow::Error>> =
-                    world.process_at_rank(process_rank).receive_vec()?;
+                let (received_bytes, _status) = world.process_at_rank(process_rank).receive_vec::<u8>();
+                let received_results: Vec<Result<HashMap<i32, PrecursorAlignmentResult>, anyhow::Error>> =
+                    bincode::deserialize(&received_bytes)?;
                 results.extend(received_results);
             }
 
             results
         } else {
-            world.process_at_rank(0).send(&local_results)?;
+            world.process_at_rank(0).send(&serialized_results);
             Vec::new()
         };
 
