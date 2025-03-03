@@ -696,15 +696,15 @@ impl Runner {
             match result {
                 Ok(precursor_alignments) => {
                     for (_, run_alignments) in precursor_alignments {
-                        for (_, peak_mappings) in &run_alignments.detecting_peak_mappings {
-                            batch.extend(peak_mappings.iter().cloned()); // Clone values to avoid moving ownership
+                        for (_, peak_mappings) in &run_alignments.alignment_scores {
+                            batch.push(peak_mappings); // Clone values to avoid moving ownership
                         }
                     }
     
                     // Insert in batches for better performance
                     if batch.len() >= batch_size {
                         for osw_access in feature_access {
-                            osw_access.insert_feature_ms2_alignment_batch(&batch)?;
+                            osw_access.insert_feature_alignment_batch(&batch)?;
                         }
                         batch.clear();
                     }
@@ -720,7 +720,7 @@ impl Runner {
         // Insert any remaining records
         if !batch.is_empty() {
             for osw_access in feature_access {
-                osw_access.insert_feature_ms2_alignment_batch(&batch)?;
+                osw_access.insert_feature_alignment_batch(&batch)?;
             }
         }
     
