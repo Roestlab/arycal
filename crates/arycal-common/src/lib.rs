@@ -1,10 +1,24 @@
+use thiserror::Error;
 use std::collections::HashMap;
+use serde::{Serialize, Deserialize};
 
 pub mod config;
 pub mod logging;
 
 
+
+#[derive(Error, Debug, Serialize, Deserialize)]
+pub enum ArycalError {
+    #[error("An error occurred: {0}")]
+    Custom(String),
+    #[error("IO error: {0}")]
+    Io(String),
+    // Add other error variants as needed
+}
+
+
 /// Represents the result of the precursor alignment.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PrecursorAlignmentResult {
     pub alignment_scores: HashMap<String, FullTraceAlignmentScores>,
     pub detecting_peak_mappings: HashMap<String, Vec<PeakMapping>>,
@@ -13,7 +27,7 @@ pub struct PrecursorAlignmentResult {
 
 
 /// Struct for the scores of the alignment of the full chromatogram.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FullTraceAlignmentScores {
     /// reference filename
     pub reference_filename: String,
@@ -29,7 +43,7 @@ pub struct FullTraceAlignmentScores {
 }
 
 /// Represents the mapping of peaks across chromatograms.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PeakMapping {
     /// Alignment ID to group the same peaks across runs.
     pub alignment_id: i64,
@@ -69,7 +83,7 @@ pub struct PeakMapping {
 
 
 /// Represents the scores for aligning peaks on the transition level.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AlignedTransitionScores {
     /// Feature ID
     pub feature_id: i64,

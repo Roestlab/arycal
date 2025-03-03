@@ -183,6 +183,8 @@ impl Runner {
     #[cfg(feature = "mpi")]
     pub fn run(&self) -> anyhow::Result<()> {
         // Initialize MPI
+
+        use arycal_common::ArycalError;
         let universe = mpi::initialize().unwrap();
         let world = universe.world();
         let rank = world.rank();  // Current process rank
@@ -220,7 +222,7 @@ impl Runner {
         );
 
         // Process the local chunk
-        let local_results: Vec<Result<HashMap<i32, PrecursorAlignmentResult>, anyhow::Error>> = local_chunk
+        let local_results: Vec<Result<HashMap<i32, PrecursorAlignmentResult>, ArycalError>> = local_chunk
             .par_chunks(self.parameters.alignment.batch_size.unwrap_or_default())
             .map(|batch| {
                 let mut batch_results = Vec::new();
@@ -236,7 +238,8 @@ impl Runner {
                     ));
                 }
                 for precursor in batch {
-                    let result = self.process_precursor(precursor);
+                    let result = self.process_precursor(precursor).map_err(|e| ArycalError::Custom(e.to_string()));
+                    batch_results.push(result);
                     batch_results.push(result);
                     if log::Level::Trace != log::max_level() {
                         progress.as_ref().expect("The Progress tqdm logger is not enabled").inc();
@@ -244,7 +247,7 @@ impl Runner {
                 }
                 Ok(batch_results)
             })
-            .collect::<Result<Vec<_>, anyhow::Error>>()?
+            .collect::<Result<Vec<_>, ArycalError>>()?
             .into_iter()
             .flatten()
             .collect();
@@ -259,7 +262,7 @@ impl Runner {
 
             for process_rank in 1..size {
                 let (received_bytes, _status) = world.process_at_rank(process_rank).receive_vec::<u8>();
-                let received_results: Vec<Result<HashMap<i32, PrecursorAlignmentResult>, anyhow::Error>> =
+                let received_results: Vec<Result<HashMap<i32, PrecursorAlignmentResult>, ArycalError>> =
                     bincode::deserialize(&received_bytes)?;
                 results.extend(received_results);
             }
