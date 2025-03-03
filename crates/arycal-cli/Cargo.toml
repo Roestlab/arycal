@@ -21,3 +21,10 @@ serde_json = "1.0"
 rayon = "1.5"
 arrow = "54.2.1"
 parquet = "54.2.1"
+
+# Optional MPI support
+mpi = { version = "0.8.0", optional = true }
+
+[features]
+default = []
+mpi = ["dep:mpi"]  # Enable MPI support
