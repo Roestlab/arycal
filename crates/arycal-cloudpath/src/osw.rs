@@ -951,13 +951,13 @@ impl OswAccess {
 
             conn.execute(
                 r#"
-                CREATE TABLE IF NOT EXISTS FEATURE_MS2_ALIGNMENT (
+                CREATE TABLE IF NOT EXISTS FEATURE_ALIGNMENT (
                     REFERENCE_FILENAME TEXT,
                     ALIGNED_FILENAME TEXT,
                     XCORR_COELUTION_TO_REFERENCE REAL,
                     XCORR_SHAPE_TO_REFERENCE REAL,
                     MI_TO_REFERENCE REAL,
-                    XCORR_COUELUTION_TO_ALL REAL,
+                    XCORR_COELUTION_TO_ALL REAL,
                     XCORR_SHAPE_TO_ALL REAL,
                     MI_TO_ALL REAL
                 );
@@ -969,9 +969,9 @@ impl OswAccess {
             // // Create indices for faster lookups
             // conn.execute(
             //     r#"
-            //     CREATE INDEX IF NOT EXISTS idx_alignment_id ON FEATURE_MS2_ALIGNMENT (ALIGNMENT_ID);
-            //     CREATE INDEX IF NOT EXISTS idx_reference_feature_id ON FEATURE_MS2_ALIGNMENT (REFERENCE_FEATURE_ID);
-            //     CREATE INDEX IF NOT EXISTS idx_aligned_feature_id ON FEATURE_MS2_ALIGNMENT (ALIGNED_FEATURE_ID);
+            //     CREATE INDEX IF NOT EXISTS idx_alignment_id ON FEATURE_ALIGNMENT (ALIGNMENT_ID);
+            //     CREATE INDEX IF NOT EXISTS idx_reference_feature_id ON FEATURE_ALIGNMENT (REFERENCE_FEATURE_ID);
+            //     CREATE INDEX IF NOT EXISTS idx_aligned_feature_id ON FEATURE_ALIGNMENT (ALIGNED_FEATURE_ID);
             //     "#,
             //     [],
             // )
@@ -1053,7 +1053,7 @@ impl OswAccess {
                 XCORR_COELUTION_TO_REFERENCE REAL,
                 XCORR_SHAPE_TO_REFERENCE REAL,
                 MI_TO_REFERENCE REAL,
-                XCORR_COUELUTION_TO_ALL REAL,
+                XCORR_COELUTION_TO_ALL REAL,
                 XCORR_SHAPE_TO_ALL REAL,
                 MI_TO_ALL REAL,
                 RETENTION_TIME_DEVIATION REAL,
@@ -1104,7 +1104,7 @@ impl OswAccess {
                         xcorr_coelution_to_reference, xcorr_shape_to_reference, mi_to_reference,
                         xcorr_coelution_to_all, xcorr_shape_to_all, mi_to_all,
                         retention_time_deviation, peak_intensity_ratio, label
-                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
                     "#,
                 )
                 .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
@@ -1135,20 +1135,21 @@ impl OswAccess {
                 .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
             }
         }
-    
+
         tx.commit()
             .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
-    
+
         Ok(())
     }
     
     /// Create the FEATURE_TRANSITION_ALIGNMENT table if it doesn't exist
     pub fn create_feature_transition_alignment_table(&self) -> Result<(), OpenSwathSqliteError> {
+
         let conn = self
             .pool
             .get()
             .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
-    
+
         conn.execute(
             r#"
             CREATE TABLE IF NOT EXISTS FEATURE_TRANSITION_ALIGNMENT (
@@ -1158,17 +1159,17 @@ impl OswAccess {
                 XCORR_COELUTION_TO_REFERENCE REAL,
                 XCORR_SHAPE_TO_REFERENCE REAL,
                 MI_TO_REFERENCE REAL,
-                XCORR_COUELUTION_TO_ALL REAL,
+                XCORR_COELUTION_TO_ALL REAL,
                 XCORR_SHAPE_TO_ALL REAL,
                 MI_TO_ALL REAL,
                 RETENTION_TIME_DEVIATION REAL,
-                PEAK_INTENSITY_RATIO REAL,
+                PEAK_INTENSITY_RATIO REAL
             );
             "#,
             [],
         )
         .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
-    
+
         // Create indices for faster lookups
         conn.execute(
             r#"
@@ -1209,7 +1210,7 @@ impl OswAccess {
                     "#,
                 )
                 .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
-    
+
             for peak_mapping in peak_mappings {
                 stmt.execute(params![
                     peak_mapping.feature_id,
@@ -1230,7 +1231,7 @@ impl OswAccess {
     
         tx.commit()
             .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
-    
+
         Ok(())
     }
 
