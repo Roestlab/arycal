@@ -288,34 +288,35 @@ pub fn map_peaks_across_runs(
                     intensity_ratio: None,
                 });
             } else {
-                // Recover missing peak in the query chromatogram
-                log::trace!("Recovering missing peak in query chromatogram for reference RT: {:?}", rt);
-                let (validated_left_width_ref, validated_right_width_ref) = validate_widths(
-                    ref_feature.left_width.as_ref().unwrap().as_multiple().unwrap()[i],
-                    ref_feature.right_width.as_ref().unwrap().as_multiple().unwrap()[i],
-                );
-                peak_mappings.push(PeakMapping {
-                    alignment_id, // Use the same alignment_id for the same peak across runs
-                    reference_feature_id: *ref_feature.feature_id.clone().unwrap(),
-                    aligned_feature_id: -1, // Use -1 to indicate a missing peak
-                    reference_rt: rt,
-                    aligned_rt: target_rt,
-                    reference_left_width: validated_left_width_ref,
-                    reference_right_width: validated_right_width_ref,
-                    aligned_left_width: validated_left_width_ref, // Use reference values as placeholder
-                    aligned_right_width: validated_right_width_ref, // Use reference values as placeholder
-                    reference_filename: ref_feature.basename.clone(),
-                    aligned_filename: aligned_features[0].basename.clone(),
-                    label: 1,
-                    xcorr_coelution_to_ref: None,
-                    xcorr_shape_to_ref: None,
-                    mi_to_ref: None,
-                    xcorr_coelution_to_all: None,
-                    xcorr_shape_to_all: None,
-                    mi_to_all: None,
-                    rt_deviation: None,
-                    intensity_ratio: None,
-                });
+                log::trace!("Reference peak not found in query chromatogram: {:?}", rt);
+                // // Recover missing peak in the query chromatogram
+                // log::trace!("Recovering missing peak in query chromatogram for reference RT: {:?}", rt);
+                // let (validated_left_width_ref, validated_right_width_ref) = validate_widths(
+                //     ref_feature.left_width.as_ref().unwrap().as_multiple().unwrap()[i],
+                //     ref_feature.right_width.as_ref().unwrap().as_multiple().unwrap()[i],
+                // );
+                // peak_mappings.push(PeakMapping {
+                //     alignment_id, // Use the same alignment_id for the same peak across runs
+                //     reference_feature_id: *ref_feature.feature_id.clone().unwrap(),
+                //     aligned_feature_id: -1, // Use -1 to indicate a missing peak
+                //     reference_rt: rt,
+                //     aligned_rt: target_rt,
+                //     reference_left_width: validated_left_width_ref,
+                //     reference_right_width: validated_right_width_ref,
+                //     aligned_left_width: validated_left_width_ref, // Use reference values as placeholder
+                //     aligned_right_width: validated_right_width_ref, // Use reference values as placeholder
+                //     reference_filename: ref_feature.basename.clone(),
+                //     aligned_filename: aligned_features[0].basename.clone(),
+                //     label: 1,
+                //     xcorr_coelution_to_ref: None,
+                //     xcorr_shape_to_ref: None,
+                //     mi_to_ref: None,
+                //     xcorr_coelution_to_all: None,
+                //     xcorr_shape_to_all: None,
+                //     mi_to_all: None,
+                //     rt_deviation: None,
+                //     intensity_ratio: None,
+                // });
             }
             alignment_id += 1;
         }
