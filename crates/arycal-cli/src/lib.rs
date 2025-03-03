@@ -203,13 +203,13 @@ impl Runner {
             start + chunk_size
         };
 
-        // Log chunk details for each process
         log::info!(
-            "Process {}: chunk_size = {}, start = {}, end = {}",
+            "Process {}: chunk_size = {}, start = {}, end = {}, hostname = {}",
             rank,
             chunk_size,
             start,
-            end
+            end,
+            hostname
         );
 
         // Each process gets its local chunk
@@ -261,6 +261,7 @@ impl Runner {
             results.extend(local_results);
 
             for process_rank in 1..size {
+                log::info!("Root process receiving results from process {}", process_rank);
                 let (received_bytes, _status) = world.process_at_rank(process_rank).receive_vec::<u8>();
                 let received_results: Vec<Result<HashMap<i32, PrecursorAlignmentResult>, ArycalError>> =
                     bincode::deserialize(&received_bytes)?;
@@ -269,6 +270,7 @@ impl Runner {
 
             results
         } else {
+            log::info!("Process {} sending results to root process", rank);
             world.process_at_rank(0).send(&serialized_results);
             Vec::new()
         };
