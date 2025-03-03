@@ -14,7 +14,7 @@ use arycal_cloudpath::{
     osw::{OswAccess, PrecursorIdData},
     sqmass::{create_common_rt_space, SqMassAccess},
 };
-use arycal_common::{logging::Progress, AlignedTransitionScores, FullTraceAlignmentScores, PeakMapping, PrecursorAlignmentResult};
+use arycal_common::{logging::Progress, AlignedTransitionScores, ArycalError, FullTraceAlignmentScores, PeakMapping, PrecursorAlignmentResult};
 use arycal_core::{alignment::{alignment::{apply_post_alignment_to_trgrp, AlignedChromatogram}, dynamic_time_warping::align_chromatograms, fast_fourier_lag::shift_chromatogram}, scoring::{compute_alignment_scores, compute_peak_mapping_scores, compute_peak_mapping_transitions_scores}};
 use arycal_core::{
     alignment::alignment::map_peaks_across_runs,
@@ -118,7 +118,7 @@ impl Runner {
     //         .collect();
 
         let results: Vec<
-            Result<HashMap<i32, PrecursorAlignmentResult>, anyhow::Error>,
+            Result<HashMap<i32, PrecursorAlignmentResult>, ArycalError>,
         > = precursor_map
             .par_chunks(self.parameters.alignment.batch_size.unwrap_or_default()) 
             .map(|batch| {
@@ -135,7 +135,7 @@ impl Runner {
                     ));
                 }
                 for precursor in batch {
-                    let result = self.process_precursor(precursor);
+                    let result = self.process_precursor(precursor).map_err(|e| ArycalError::Custom(e.to_string()));
                     batch_results.push(result);
                     if log::Level::Trace!=log::max_level() {
                         progress.as_ref().expect("The Progess tqdm logger is not enabled").inc();
@@ -143,7 +143,7 @@ impl Runner {
                 }
                 Ok(batch_results)
             })
-            .collect::<Result<Vec<_>, anyhow::Error>>()? 
+            .collect::<Result<Vec<_>, ArycalError>>()? 
             .into_iter()
             .flatten() 
             .collect();
@@ -675,7 +675,7 @@ impl Runner {
     fn write_aligned_score_results_to_db(
         &self,
         feature_access: &Vec<OswAccess>,
-        results: &Vec<Result<HashMap<i32, PrecursorAlignmentResult>, anyhow::Error>>, 
+        results: &Vec<Result<HashMap<i32, PrecursorAlignmentResult>, ArycalError>>, 
     ) -> Result<()> {
         // Ensure the FEATURE_ALIGNMENT table exists
         for osw_access in feature_access {
@@ -728,7 +728,7 @@ impl Runner {
     fn write_ms2_alignment_results_to_db(
         &self,
         feature_access: &Vec<OswAccess>,
-        results: &Vec<Result<HashMap<i32, PrecursorAlignmentResult>, anyhow::Error>>, 
+        results: &Vec<Result<HashMap<i32, PrecursorAlignmentResult>, ArycalError>>, 
     ) -> Result<()> {
         // Ensure the FEATURE_MS2_ALIGNMENT table exists
         for osw_access in feature_access {
@@ -783,7 +783,7 @@ impl Runner {
     fn write_transition_alignment_results_to_db(
         &self,
         feature_access: &Vec<OswAccess>,
-        results: &Vec<Result<HashMap<i32, PrecursorAlignmentResult>, anyhow::Error>>, 
+        results: &Vec<Result<HashMap<i32, PrecursorAlignmentResult>, ArycalError>>, 
     ) -> Result<()> {
         // Ensure the FEATURE_TRANSITION_ALIGNMENT table exists
         for osw_access in feature_access {
