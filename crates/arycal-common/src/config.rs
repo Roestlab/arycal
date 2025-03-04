@@ -182,17 +182,17 @@ impl std::fmt::Display for AlignmentConfig {
             decoy_window_size: {:?}\n\
             compute_scores: {:?}\n\
             -------------------------",
-            self.batch_size.unwrap(),
+            self.batch_size.unwrap_or_default(),
             self.method,
             self.reference_type,
             self.reference_run,
             self.use_tic,
             self.smoothing.sgolay_window,
             self.smoothing.sgolay_order,
-            self.rt_mapping_tolerance.unwrap(),
+            self.rt_mapping_tolerance.unwrap_or_default(),
             self.decoy_peak_mapping_method,
-            self.decoy_window_size.unwrap(),
-            self.compute_scores.unwrap()
+            self.decoy_window_size.unwrap_or_default(),
+            self.compute_scores.unwrap_or_default()
         )
     }
 }

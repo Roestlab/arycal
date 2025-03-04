@@ -427,7 +427,7 @@ pub fn create_decoy_peaks_by_random_regions(
             let end_idx = start_idx + window_size;
 
             // Update only the aligned peak information
-            peak.aligned_rt = retention_times[start_idx];
+            peak.aligned_rt = (retention_times[start_idx] + retention_times[end_idx]) / 2.0;
             peak.aligned_left_width = retention_times[start_idx];
             peak.aligned_right_width = retention_times[end_idx];
             peak.aligned_feature_id = -1; // Mark as decoy

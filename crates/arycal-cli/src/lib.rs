@@ -498,7 +498,7 @@ impl Runner {
             log::trace!("Peak mapping scoring took: {:?}", start_time.elapsed());
             (scored_peak_mappings, all_peak_mappings)
         } else {
-            (HashMap::new(), HashMap::new())
+            (HashMap::new(), mapped_prec_peaks)
         };
 
         /* ------------------------------------------------------------------ */
