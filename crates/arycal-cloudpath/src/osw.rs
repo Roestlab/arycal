@@ -265,7 +265,10 @@ impl PrecursorIdData {
     /// # Returns
     /// A vector of strings containing the native IDs for SqMass
     pub fn extract_identifying_native_ids_for_sqmass(&self) -> Vec<String> {
-        self.identifying_transition_ids.iter().map(|id| id.to_string()).collect()
+        self.identifying_transition_ids
+            .iter()
+            .map(|id| id.to_string())
+            .collect()
     }
 }
 
@@ -941,7 +944,6 @@ impl OswAccess {
         Ok(feature_data_map.into_values().collect())
     }
 
-
     /// Create the FEATURE_ALIGNMENT table if it doesn't exist
     pub fn create_feature_alignment_table(&self) -> Result<(), OpenSwathSqliteError> {
         let conn = self
@@ -949,8 +951,26 @@ impl OswAccess {
             .get()
             .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
 
+        // Check if the table exists
+        let table_exists: bool = conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'FEATURE_ALIGNMENT');",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+
+        // If the table exists, drop it and log a warning
+        if table_exists {
+            log::warn!("Table FEATURE_ALIGNMENT seems to already exist. Dropping it to create a new table for incomng data.");
             conn.execute(
-                r#"
+                "DROP TABLE FEATURE_ALIGNMENT;",
+                [],
+            )
+            .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+        }
+        
+        conn.execute(
+            r#"
                 CREATE TABLE IF NOT EXISTS FEATURE_ALIGNMENT (
                     REFERENCE_FILENAME TEXT,
                     ALIGNED_FILENAME TEXT,
@@ -962,38 +982,38 @@ impl OswAccess {
                     MI_TO_ALL REAL
                 );
                 "#,
-                [],
-            )
-            .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
-    
-            // // Create indices for faster lookups
-            // conn.execute(
-            //     r#"
-            //     CREATE INDEX IF NOT EXISTS idx_alignment_id ON FEATURE_ALIGNMENT (ALIGNMENT_ID);
-            //     CREATE INDEX IF NOT EXISTS idx_reference_feature_id ON FEATURE_ALIGNMENT (REFERENCE_FEATURE_ID);
-            //     CREATE INDEX IF NOT EXISTS idx_aligned_feature_id ON FEATURE_ALIGNMENT (ALIGNED_FEATURE_ID);
-            //     "#,
-            //     [],
-            // )
-            // .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
-    
-            Ok(())
+            [],
+        )
+        .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+
+        // // Create indices for faster lookups
+        // conn.execute(
+        //     r#"
+        //     CREATE INDEX IF NOT EXISTS idx_alignment_id ON FEATURE_ALIGNMENT (ALIGNMENT_ID);
+        //     CREATE INDEX IF NOT EXISTS idx_reference_feature_id ON FEATURE_ALIGNMENT (REFERENCE_FEATURE_ID);
+        //     CREATE INDEX IF NOT EXISTS idx_aligned_feature_id ON FEATURE_ALIGNMENT (ALIGNED_FEATURE_ID);
+        //     "#,
+        //     [],
+        // )
+        // .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+
+        Ok(())
     }
 
     /// Insert batch of feature alignment data into the FEATURE_ALIGNMENT table
     pub fn insert_feature_alignment_batch(
         &self,
-        scores: &Vec<&FullTraceAlignmentScores>, 
+        scores: &Vec<&FullTraceAlignmentScores>,
     ) -> Result<(), OpenSwathSqliteError> {
         let mut conn = self
             .pool
             .get()
             .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
-        
+
         let tx = conn
             .transaction()
             .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
-    
+
         {
             let mut stmt = tx
                 .prepare(
@@ -1006,7 +1026,7 @@ impl OswAccess {
                     "#,
                 )
                 .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
-    
+
             for peak_mapping in scores {
                 stmt.execute(params![
                     peak_mapping.reference_filename,
@@ -1021,13 +1041,12 @@ impl OswAccess {
                 .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
             }
         }
-    
+
         tx.commit()
             .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
-    
+
         Ok(())
     }
-    
 
     /// Create the FEATURE_MS2_ALIGNMENT table if it doesn't exist
     pub fn create_feature_ms2_alignment_table(&self) -> Result<(), OpenSwathSqliteError> {
@@ -1035,6 +1054,24 @@ impl OswAccess {
             .pool
             .get()
             .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+
+        // Check if the table exists
+        let table_exists: bool = conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'FEATURE_MS2_ALIGNMENT');",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+
+        // If the table exists, drop it and log a warning
+        if table_exists {
+            log::warn!("Table FEATURE_MS2_ALIGNMENT seems to already exist. Dropping it to create a new table for incomng data.");
+            conn.execute(
+                "DROP TABLE FEATURE_MS2_ALIGNMENT;",
+                [],
+            )
+            .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+        }
 
         conn.execute(
             r#"
@@ -1088,11 +1125,11 @@ impl OswAccess {
             .pool
             .get()
             .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
-        
+
         let tx = conn
             .transaction()
             .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
-    
+
         {
             let mut stmt = tx
                 .prepare(
@@ -1108,7 +1145,7 @@ impl OswAccess {
                     "#,
                 )
                 .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
-    
+
             for peak_mapping in peak_mappings {
                 stmt.execute(params![
                     peak_mapping.alignment_id,
@@ -1141,14 +1178,31 @@ impl OswAccess {
 
         Ok(())
     }
-    
+
     /// Create the FEATURE_TRANSITION_ALIGNMENT table if it doesn't exist
     pub fn create_feature_transition_alignment_table(&self) -> Result<(), OpenSwathSqliteError> {
-
         let conn = self
             .pool
             .get()
             .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+
+        // Check if the table exists
+        let table_exists: bool = conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'FEATURE_TRANSITION_ALIGNMENT');",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+
+        // If the table exists, drop it and log a warning
+        if table_exists {
+            log::warn!("Table FEATURE_TRANSITION_ALIGNMENT seems to already exist. Dropping it to create a new table for incomng data.");
+            conn.execute(
+                "DROP TABLE FEATURE_TRANSITION_ALIGNMENT;",
+                [],
+            )
+            .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+        }
 
         conn.execute(
             r#"
@@ -1186,17 +1240,17 @@ impl OswAccess {
     /// Insert batch of feature transition alignment data into the FEATURE_TRANSITION_ALIGNMENT table
     pub fn insert_feature_transition_alignment_batch(
         &self,
-        peak_mappings: &[AlignedTransitionScores], 
+        peak_mappings: &[AlignedTransitionScores],
     ) -> Result<(), OpenSwathSqliteError> {
         let mut conn = self
             .pool
             .get()
             .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
-        
+
         let tx = conn
             .transaction()
             .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
-    
+
         {
             let mut stmt = tx
                 .prepare(
@@ -1228,11 +1282,10 @@ impl OswAccess {
                 .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
             }
         }
-    
+
         tx.commit()
             .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
 
         Ok(())
     }
-
 }
