@@ -263,11 +263,11 @@ impl Runner {
         if rank == 0 {
             if self.parameters.alignment.compute_scores.unwrap_or_default() {
                 // Write FEATURE_ALIGNMENT results to the database
-                self.write_aligned_score_results_to_db(&self.feature_access, &results)?;
+                self.write_aligned_score_results_to_db(&self.feature_access, &gathered_results)?;
             }
             self.write_ms2_alignment_results_to_db(&self.feature_access, &gathered_results)?;
             if self.parameters.filters.include_identifying_transitions.unwrap_or_default() && self.parameters.alignment.compute_scores.unwrap_or_default() {
-                self.write_transition_alignment_results_to_db(&self.feature_access, &results)?;   
+                self.write_transition_alignment_results_to_db(&self.feature_access, &gathered_results)?;   
             }
 
             let run_time = (Instant::now() - self.start).as_secs();
