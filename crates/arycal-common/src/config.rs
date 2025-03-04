@@ -141,6 +141,8 @@ pub struct AlignmentConfig {
     pub decoy_peak_mapping_method: String,
     /// Size of the window to use for the decoy peak mapping. Only used when the method is "random_region".
     pub decoy_window_size: Option<usize>,
+    /// Optionally compute alignment scores for the full trace alignment and peak mapping. Default is true.
+    pub compute_scores: Option<bool>,
 }
 
 impl Default for AlignmentConfig {
@@ -158,6 +160,7 @@ impl Default for AlignmentConfig {
             rt_mapping_tolerance: Some(20.0),
             decoy_peak_mapping_method: "shuffle".to_string(),
             decoy_window_size: Some(30),
+            compute_scores: Some(true),
         }
     }
 }
@@ -177,6 +180,7 @@ impl std::fmt::Display for AlignmentConfig {
             rt_mapping_tolerance: {}\n\
             decoy_peak_mapping_method: {}\n\
             decoy_window_size: {:?}\n\
+            compute_scores: {:?}\n\
             -------------------------",
             self.batch_size.unwrap(),
             self.method,
@@ -188,6 +192,7 @@ impl std::fmt::Display for AlignmentConfig {
             self.rt_mapping_tolerance.unwrap(),
             self.decoy_peak_mapping_method,
             self.decoy_window_size.unwrap(),
+            self.compute_scores.unwrap()
         )
     }
 }
