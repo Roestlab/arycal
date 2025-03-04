@@ -183,46 +183,27 @@ impl Runner {
     #[cfg(feature = "mpi")]
     pub fn run(&self) -> anyhow::Result<()> {
         // Initialize MPI
-
-        use arycal_common::ArycalError;
         let universe = mpi::initialize().unwrap();
         let world = universe.world();
         let rank = world.rank();  // Current process rank
         let size = world.size();  // Total number of processes
 
-        // Log MPI initialization details
         let hostname = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
         log::info!("MPI initialized: rank = {}, size = {}, hostname = {}", rank, size, hostname);
 
-        // Split the precursor_map into chunks for each process
-        let chunk_size = self.precursor_map.len() / size as usize;
+        // Determine chunking for distributing precursors
+        let total_precursors = self.precursor_map.len();
+        let chunk_size = (total_precursors + size as usize - 1) / size as usize; // Ensure even distribution
         let start = rank as usize * chunk_size;
-        let end = if rank == size - 1 {
-            self.precursor_map.len()  // Last process gets the remaining elements
-        } else {
-            start + chunk_size
-        };
+        let end = std::cmp::min(start + chunk_size, total_precursors);
 
-        log::info!(
-            "Process {}: chunk_size = {}, start = {}, end = {}, hostname = {}",
-            rank,
-            chunk_size,
-            start,
-            end,
-            hostname
-        );
-
-        // Each process gets its local chunk
         let local_chunk = &self.precursor_map[start..end];
-
-        // Log the size of the local chunk
         log::info!(
-            "Process {}: local_chunk size = {}",
-            rank,
-            local_chunk.len()
+            "Process {}: Processing chunk {} to {} ({} precursors)",
+            rank, start, end, local_chunk.len()
         );
 
-        // Process the local chunk
+        // Parallel processing using Rayon within each node
         let local_results: Vec<Result<HashMap<i32, PrecursorAlignmentResult>, ArycalError>> = local_chunk
             .par_chunks(self.parameters.alignment.batch_size.unwrap_or_default())
             .map(|batch| {
@@ -232,7 +213,9 @@ impl Runner {
                     progress = Some(Progress::new(
                         batch.len(),
                         format!(
-                            "[arycal] Thread {:?} - Aligning precursors",
+                            "[arycal] Node {} - Rank {} - Thread {:?} - Aligning precursors",
+                            hostname,
+                            rank,
                             rayon::current_thread_index().unwrap()
                         )
                         .as_str(),
@@ -241,8 +224,8 @@ impl Runner {
                 for precursor in batch {
                     let result = self.process_precursor(precursor).map_err(|e| ArycalError::Custom(e.to_string()));
                     batch_results.push(result);
-                    if log::Level::Trace != log::max_level() {
-                        progress.as_ref().expect("The Progress tqdm logger is not enabled").inc();
+                    if let Some(prog) = &progress {
+                        prog.inc();
                     }
                 }
                 Ok(batch_results)
@@ -252,46 +235,42 @@ impl Runner {
             .flatten()
             .collect();
 
-        // Serialize local_results into bytes
+        // Serialize results
         let serialized_results = bincode::serialize(&local_results)?;
 
-        // Gather results to the root process
+        // Gather results at root (rank 0)
         let gathered_results = if rank == 0 {
-            let mut results = Vec::new();
-            results.extend(local_results);
+            let mut all_results = Vec::new();
+            all_results.extend(local_results);
 
             for process_rank in 1..size {
                 log::info!("Root process receiving results from process {}", process_rank);
                 let (received_bytes, _status) = world.process_at_rank(process_rank).receive_vec::<u8>();
                 let received_results: Vec<Result<HashMap<i32, PrecursorAlignmentResult>, ArycalError>> =
                     bincode::deserialize(&received_bytes)?;
-                results.extend(received_results);
+                all_results.extend(received_results);
             }
 
-            results
+            all_results
         } else {
             log::info!("Process {} sending results to root process", rank);
             world.process_at_rank(0).send(&serialized_results);
-            Vec::new()
+            Vec::new() // Non-root processes do not keep results
         };
 
-        // Only the root process writes results to the database
+        // Only root process writes results to the database
         if rank == 0 {
-            // Write FEATURE_ALIGNMENT results to the database
             self.write_aligned_score_results_to_db(&self.feature_access, &gathered_results)?;
-
-            // Write FEATURE_MS2_ALIGNMENT results to the database
             self.write_ms2_alignment_results_to_db(&self.feature_access, &gathered_results)?;
-
-            // Write FEATURE_TRANSITION_ALIGNMENT results to the database
             self.write_transition_alignment_results_to_db(&self.feature_access, &gathered_results)?;
 
             let run_time = (Instant::now() - self.start).as_secs();
-            info!("finished in {}s", run_time);
+            info!("Alignment completed in {}s", run_time);
         }
 
         Ok(())
     }
+
 
     pub fn process_precursor(
         &self,
