@@ -188,7 +188,7 @@ pub fn compute_peak_mapping_transitions_scores(
 
                     // Store the scores for the peak mapping
                     let aligned_identifying_transition_scores = AlignedTransitionScores {
-                        feature_id: peak_mapping.alignment_id,
+                        feature_id: peak_mapping.aligned_feature_id,
                         transition_id: transition_id.clone().parse::<i64>().unwrap(),
                         label: peak_mapping.label,
                         xcorr_coelution_to_ref: Some(xcorr_coelution_to_ref),

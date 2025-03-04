@@ -513,7 +513,7 @@ impl Runner {
         let start_time = Instant::now();
         let identifying_peak_mapping_scores: HashMap<String, Vec<AlignedTransitionScores>> = if self.parameters.filters.include_identifying_transitions.unwrap_or_default() {
             log::trace!("Processing identifying transitions - aligning and scoring");
-            let id_peak_scores = self.process_identifying_transitions(group_id.clone(), precursor, aligned_chromatograms.clone(), all_peak_mappings.clone(), smoothed_tics[0].retention_times.clone());
+            let id_peak_scores = self.process_identifying_transitions(group_id.clone(), precursor, aligned_chromatograms.clone(), scored_peak_mappings.clone(), smoothed_tics[0].retention_times.clone());
             id_peak_scores
         } else {
             HashMap::new()
