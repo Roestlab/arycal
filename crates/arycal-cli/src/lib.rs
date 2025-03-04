@@ -163,17 +163,18 @@ impl Runner {
         //     })
         //     .collect();
 
-
-        // Perform Semi-Supervised Learning to compute discriminant scores and q-values
-
-        // Write FEATURE_ALIGNMENT results to the database
-        self.write_aligned_score_results_to_db(&self.feature_access, &results)?;
-
+        if self.parameters.alignment.compute_scores.unwrap_or_default() {
+            // Write FEATURE_ALIGNMENT results to the database
+            self.write_aligned_score_results_to_db(&self.feature_access, &results)?;
+        }
+        
         // Write FEATURE_MS2_ALIGNMENT results to the database
         self.write_ms2_alignment_results_to_db(&self.feature_access, &results)?;
 
         // Write FEATURE_TRANSITION_ALIGNMENT results to the database
-        self.write_transition_alignment_results_to_db(&self.feature_access, &results)?;
+        if self.parameters.filters.include_identifying_transitions.unwrap_or_default() && self.parameters.alignment.compute_scores.unwrap_or_default() {
+            self.write_transition_alignment_results_to_db(&self.feature_access, &results)?;   
+        }
 
         let run_time = (Instant::now() - self.start).as_secs();
         info!("finished in {}s", run_time);
@@ -260,9 +261,14 @@ impl Runner {
 
         // Only root process writes results to the database
         if rank == 0 {
-            self.write_aligned_score_results_to_db(&self.feature_access, &gathered_results)?;
+            if self.parameters.alignment.compute_scores.unwrap_or_default() {
+                // Write FEATURE_ALIGNMENT results to the database
+                self.write_aligned_score_results_to_db(&self.feature_access, &results)?;
+            }
             self.write_ms2_alignment_results_to_db(&self.feature_access, &gathered_results)?;
-            self.write_transition_alignment_results_to_db(&self.feature_access, &gathered_results)?;
+            if self.parameters.filters.include_identifying_transitions.unwrap_or_default() && self.parameters.alignment.compute_scores.unwrap_or_default() {
+                self.write_transition_alignment_results_to_db(&self.feature_access, &results)?;   
+            }
 
             let run_time = (Instant::now() - self.start).as_secs();
             info!("Alignment completed in {}s", run_time);
@@ -375,11 +381,15 @@ impl Runner {
         /* ------------------------------------------------------------------ */
         /* Step 3. Score Algined TICs                                         */
         /* ------------------------------------------------------------------ */
-        log::trace!("Computing full trace alignment scores");
-        let start_time = Instant::now();
-        let alignment_scores = compute_alignment_scores(aligned_chromatograms.clone());
-        log::trace!("Scoring took: {:?}", start_time.elapsed());
-
+        let alignment_scores = if self.parameters.alignment.compute_scores.unwrap_or_default() {
+            log::trace!("Computing full trace alignment scores");
+            let start_time = Instant::now();
+            let alignment_scores = compute_alignment_scores(aligned_chromatograms.clone());
+            log::trace!("Scoring took: {:?}", start_time.elapsed());
+            alignment_scores
+        } else {
+            HashMap::new()
+        };
 
         // let output_path = "aligned_chromatograms.parquet";
         // println!("Writing aligned chromatograms to: {:?}", output_path);
@@ -452,60 +462,65 @@ impl Runner {
         /* ------------------------------------------------------------------ */
         /* Step 5. Score Aligned Peaks                                        */
         /* ------------------------------------------------------------------ */
-        log::trace!("Computing peak mapping scores");
-        let start_time = Instant::now();
-        let scored_peak_mappings =
-            compute_peak_mapping_scores(aligned_chromatograms.clone(), mapped_prec_peaks.clone());
+        let (scored_peak_mappings, all_peak_mappings) = if self.parameters.alignment.compute_scores.unwrap_or_default() {
+            log::trace!("Computing peak mapping scores");
+            let start_time = Instant::now();
+            let scored_peak_mappings =
+                compute_peak_mapping_scores(aligned_chromatograms.clone(), mapped_prec_peaks.clone());
 
-        // Create decoy aligned peaks based on the method specified in the parameters
-        let mut decoy_peak_mappings: HashMap<String, Vec<PeakMapping>> = HashMap::new();
-        if self.parameters.alignment.decoy_peak_mapping_method == "shuffle" {
-            log::trace!("Creating decoy peaks by shuffling query peaks");
-            decoy_peak_mappings = create_decoy_peaks_by_shuffling(&mapped_prec_peaks.clone());
-        } else if self.parameters.alignment.decoy_peak_mapping_method == "random_regions" {
-            log::trace!("Creating decoy peaks by picking random regions in the query XIC");
-            decoy_peak_mappings = create_decoy_peaks_by_random_regions(&aligned_chromatograms.clone(), &mapped_prec_peaks.clone(), self.parameters.alignment.decoy_window_size.unwrap_or_default());
-        }
-        log::trace!("Computing peak mapping scores for decoy peaks");
-        let scored_decoy_peak_mappings =
-            compute_peak_mapping_scores(aligned_chromatograms.clone(), decoy_peak_mappings.clone());
-
-        // Combine true and decoy peaks for analysis into HashMap<String, Vec<PeakMapping>>
-        let all_peak_mappings: HashMap<String, Vec<PeakMapping>> = {
-            let mut all_peak_mappings = HashMap::new();
-            for (key, value) in scored_peak_mappings
-                .iter()
-                .chain(scored_decoy_peak_mappings.iter())
-            {
-                all_peak_mappings
-                    .entry(key.clone())
-                    .or_insert_with(Vec::new)
-                    .extend(value.clone());
+            // Create decoy aligned peaks based on the method specified in the parameters
+            let mut decoy_peak_mappings: HashMap<String, Vec<PeakMapping>> = HashMap::new();
+            if self.parameters.alignment.decoy_peak_mapping_method == "shuffle" {
+                log::trace!("Creating decoy peaks by shuffling query peaks");
+                decoy_peak_mappings = create_decoy_peaks_by_shuffling(&mapped_prec_peaks.clone());
+            } else if self.parameters.alignment.decoy_peak_mapping_method == "random_regions" {
+                log::trace!("Creating decoy peaks by picking random regions in the query XIC");
+                decoy_peak_mappings = create_decoy_peaks_by_random_regions(&aligned_chromatograms.clone(), &mapped_prec_peaks.clone(), self.parameters.alignment.decoy_window_size.unwrap_or_default());
             }
-            all_peak_mappings
+            log::trace!("Computing peak mapping scores for decoy peaks");
+            let scored_decoy_peak_mappings =
+                compute_peak_mapping_scores(aligned_chromatograms.clone(), decoy_peak_mappings.clone());
+
+            // Combine true and decoy peaks for analysis into HashMap<String, Vec<PeakMapping>>
+            let all_peak_mappings: HashMap<String, Vec<PeakMapping>> = {
+                let mut all_peak_mappings = HashMap::new();
+                for (key, value) in scored_peak_mappings
+                    .iter()
+                    .chain(scored_decoy_peak_mappings.iter())
+                {
+                    all_peak_mappings
+                        .entry(key.clone())
+                        .or_insert_with(Vec::new)
+                        .extend(value.clone());
+                }
+                all_peak_mappings
+            };
+            log::trace!("Peak mapping scoring took: {:?}", start_time.elapsed());
+            (scored_peak_mappings, all_peak_mappings)
+        } else {
+            (HashMap::new(), HashMap::new())
         };
-        log::trace!("Peak mapping scoring took: {:?}", start_time.elapsed());
 
         /* ------------------------------------------------------------------ */
         /* Step 6. Optional Step: Align and Score Identifying Transitions     */
         /* ------------------------------------------------------------------ */
-        let start_time = Instant::now();
-        let identifying_peak_mapping_scores: HashMap<String, Vec<AlignedTransitionScores>> = if self.parameters.filters.include_identifying_transitions.unwrap_or_default() {
+        let identifying_peak_mapping_scores: HashMap<String, Vec<AlignedTransitionScores>> = if self.parameters.filters.include_identifying_transitions.unwrap_or_default() && self.parameters.alignment.compute_scores.unwrap_or_default() {
+            let start_time = Instant::now();
             log::trace!("Processing identifying transitions - aligning and scoring");
             let id_peak_scores = self.process_identifying_transitions(group_id.clone(), precursor, aligned_chromatograms.clone(), scored_peak_mappings.clone(), smoothed_tics[0].retention_times.clone());
+            log::trace!("Identifying peak mapping scoring took: {:?}", start_time.elapsed());
             id_peak_scores
         } else {
             HashMap::new()
         };
-        log::trace!("Identifying peak mapping scoring took: {:?}", start_time.elapsed());
         
         // output::write_mapped_peaks_to_parquet(all_peak_mappings, "mapped_peaks.parquet")?;
 
         let mut result = HashMap::new();
         result.insert(precursor.precursor_id.clone(), PrecursorAlignmentResult{
-            alignment_scores: alignment_scores,
+            alignment_scores,
             detecting_peak_mappings: all_peak_mappings,
-            identifying_peak_mapping_scores: identifying_peak_mapping_scores,
+            identifying_peak_mapping_scores,
         });
 
         // Check if progress is available to update
