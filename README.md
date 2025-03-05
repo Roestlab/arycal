@@ -36,7 +36,13 @@ git clone https://github.com/singjc/arycal.git
 cd arycal
 
 # Build the command line tool using Cargo
-cargo build --release --bin arycal
+cargo build --release --bin arycal=
+```
+
+If you're working on an HPC, you can add the `--features mpi` flag to enable MPI support for distributed computation across multiple nodes.
+
+```bash
+cargo build --features mpi --release --bin arycal
 ```
 
 ## Usage
