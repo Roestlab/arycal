@@ -80,7 +80,7 @@ impl Runner {
         // .collect();
 
         // Print log info of alignment params from self.parameters.alignment
-        log::trace!("{}", self.parameters.alignment);
+        log::debug!("{}", self.parameters.alignment);
 
         let precursor_map = &self.precursor_map; 
 
@@ -288,7 +288,7 @@ impl Runner {
         );
         let native_ids_str: Vec<&str> = native_ids.iter().map(|s| s.as_str()).collect();
 
-        log::trace!("modified_sequence: {:?}, precursor_charge: {:?}, detecting transitions: {:?}, identifying transitions: {:?}", precursor.modified_sequence, precursor.precursor_charge, precursor.n_transitions(), precursor.n_identifying_transitions());
+        log::debug!("modified_sequence: {:?}, precursor_charge: {:?}, detecting transitions: {:?}, identifying transitions: {:?}", precursor.modified_sequence, precursor.precursor_charge, precursor.n_transitions(), precursor.n_identifying_transitions());
 
         log::trace!("native_ids: {:?}", native_ids);
 
@@ -354,7 +354,7 @@ impl Runner {
         /* Step 2. Pair-wise Alignment of TICs                                */
         /* ------------------------------------------------------------------ */
 
-        log::trace!("Aligning TICs using {:?} using reference type: {:?}", self.parameters.alignment.method.as_str(), self.parameters.alignment.reference_type);
+        log::debug!("Aligning TICs using {:?} using reference type: {:?}", self.parameters.alignment.method.as_str(), self.parameters.alignment.reference_type);
         let start_time = Instant::now();
         let aligned_chromatograms = match self.parameters.alignment.method.as_str() {
             "dtw" => {
@@ -376,16 +376,16 @@ impl Runner {
             "fft_dtw" => star_align_tics_fft_with_local_refinement(smoothed_tics.clone(), &self.parameters.alignment)?,
             _ => star_align_tics(smoothed_tics.clone(), &self.parameters.alignment)?,
         };
-        log::trace!("Alignment took: {:?}", start_time.elapsed());
+        log::debug!("Alignment took: {:?}", start_time.elapsed());
 
         /* ------------------------------------------------------------------ */
         /* Step 3. Score Algined TICs                                         */
         /* ------------------------------------------------------------------ */
         let alignment_scores = if self.parameters.alignment.compute_scores.unwrap_or_default() {
-            log::trace!("Computing full trace alignment scores");
+            log::debug!("Computing full trace alignment scores");
             let start_time = Instant::now();
             let alignment_scores = compute_alignment_scores(aligned_chromatograms.clone());
-            log::trace!("Scoring took: {:?}", start_time.elapsed());
+            log::debug!("Scoring took: {:?}", start_time.elapsed());
             alignment_scores
         } else {
             HashMap::new()
@@ -433,12 +433,9 @@ impl Runner {
 
             // Check if current_run_feat_data and ref_run_feat_data are empty
             if current_run_feat_data.is_empty() || ref_run_feat_data.is_empty() {
-                log::trace!("Current run feature data or reference run feature data is empty");
+                log::debug!("Current run feature data or reference run feature data is empty");
                 continue;
             }
-
-            // println!("Current run feature data: {:?}", current_run_feat_data);
-            // println!("Reference run feature data: {:?}", ref_run_feat_data);
 
             // map_peaks_across_runs
             let mapped_peaks =
@@ -457,13 +454,13 @@ impl Runner {
 
             
         }
-        log::trace!("Peak mapping took: {:?}", start_time.elapsed());
+        log::debug!("Peak mapping took: {:?}", start_time.elapsed());
 
         /* ------------------------------------------------------------------ */
         /* Step 5. Score Aligned Peaks                                        */
         /* ------------------------------------------------------------------ */
         let (scored_peak_mappings, all_peak_mappings) = if self.parameters.alignment.compute_scores.unwrap_or_default() {
-            log::trace!("Computing peak mapping scores");
+            log::debug!("Computing peak mapping scores");
             let start_time = Instant::now();
             let scored_peak_mappings =
                 compute_peak_mapping_scores(aligned_chromatograms.clone(), mapped_prec_peaks.clone());
@@ -471,13 +468,13 @@ impl Runner {
             // Create decoy aligned peaks based on the method specified in the parameters
             let mut decoy_peak_mappings: HashMap<String, Vec<PeakMapping>> = HashMap::new();
             if self.parameters.alignment.decoy_peak_mapping_method == "shuffle" {
-                log::trace!("Creating decoy peaks by shuffling query peaks");
+                log::debug!("Creating decoy peaks by shuffling query peaks");
                 decoy_peak_mappings = create_decoy_peaks_by_shuffling(&mapped_prec_peaks.clone());
             } else if self.parameters.alignment.decoy_peak_mapping_method == "random_regions" {
-                log::trace!("Creating decoy peaks by picking random regions in the query XIC");
+                log::debug!("Creating decoy peaks by picking random regions in the query XIC");
                 decoy_peak_mappings = create_decoy_peaks_by_random_regions(&aligned_chromatograms.clone(), &mapped_prec_peaks.clone(), self.parameters.alignment.decoy_window_size.unwrap_or_default());
             }
-            log::trace!("Computing peak mapping scores for decoy peaks");
+            log::debug!("Computing peak mapping scores for decoy peaks");
             let scored_decoy_peak_mappings =
                 compute_peak_mapping_scores(aligned_chromatograms.clone(), decoy_peak_mappings.clone());
 
@@ -495,7 +492,7 @@ impl Runner {
                 }
                 all_peak_mappings
             };
-            log::trace!("Peak mapping scoring took: {:?}", start_time.elapsed());
+            log::debug!("Peak mapping scoring took: {:?}", start_time.elapsed());
             (scored_peak_mappings, all_peak_mappings)
         } else {
             (HashMap::new(), mapped_prec_peaks)
@@ -506,9 +503,9 @@ impl Runner {
         /* ------------------------------------------------------------------ */
         let identifying_peak_mapping_scores: HashMap<String, Vec<AlignedTransitionScores>> = if self.parameters.filters.include_identifying_transitions.unwrap_or_default() && self.parameters.alignment.compute_scores.unwrap_or_default() {
             let start_time = Instant::now();
-            log::trace!("Processing identifying transitions - aligning and scoring");
+            log::debug!("Processing identifying transitions - aligning and scoring");
             let id_peak_scores = self.process_identifying_transitions(group_id.clone(), precursor, aligned_chromatograms.clone(), scored_peak_mappings.clone(), smoothed_tics[0].retention_times.clone());
-            log::trace!("Identifying peak mapping scoring took: {:?}", start_time.elapsed());
+            log::debug!("Identifying peak mapping scoring took: {:?}", start_time.elapsed());
             id_peak_scores
         } else {
             HashMap::new()
@@ -578,7 +575,7 @@ impl Runner {
         );
         let native_ids_str: Vec<&str> = native_ids.iter().map(|s| s.as_str()).collect();
 
-        log::trace!("modified_sequence: {:?}, precursor_charge: {:?}, detecting transitions: {:?}, identifying transitions: {:?}", precursor.modified_sequence, precursor.precursor_charge, precursor.n_transitions(), precursor.n_identifying_transitions());
+        log::debug!("modified_sequence: {:?}, precursor_charge: {:?}, detecting transitions: {:?}, identifying transitions: {:?}", precursor.modified_sequence, precursor.precursor_charge, precursor.n_transitions(), precursor.n_identifying_transitions());
 
         log::trace!("native_ids: {:?}", native_ids);
 
@@ -644,7 +641,7 @@ impl Runner {
         /* Step 2. Pair-wise Alignment of TICs                                */
         /* ------------------------------------------------------------------ */
 
-        log::trace!("Aligning TICs using {:?} using reference type: {:?}", self.parameters.alignment.method.as_str(), self.parameters.alignment.reference_type);
+        log::debug!("Aligning TICs using {:?} using reference type: {:?}", self.parameters.alignment.method.as_str(), self.parameters.alignment.reference_type);
         let aligned_chromatograms = match self.parameters.alignment.method.as_str() {
             "dtw" => {
                 match self.parameters.alignment.reference_type.as_str() {

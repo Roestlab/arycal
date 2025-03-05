@@ -823,6 +823,9 @@ impl OswAccess {
             sql_query.push_str(&format!(" AND ({})", run_filter.join(" OR ")));
         }
 
+        // Order by EXP_RT
+        sql_query.push_str(" ORDER BY FILENAME, EXP_RT");
+
         // Prepare and execute the SQL query
         let mut stmt = conn
             .prepare(&sql_query)

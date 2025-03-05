@@ -1,9 +1,10 @@
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::f64;
 use arycal_common::config::{AlignmentConfig, SmoothingConfig};
 use union_find::{QuickFindUf, UnionBySize, UnionFind};
 
-use arycal_cloudpath::osw::FeatureData;
+use arycal_cloudpath::osw::{FeatureData, ValueEntryType};
 use arycal_cloudpath::sqmass::{apply_common_rt_space_single, Chromatogram, TransitionGroup};
 use arycal_common::PeakMapping;
 
@@ -202,7 +203,7 @@ pub fn construct_mst(
 /// Validates the widths of two peaks and switches the order if necessary.
 pub fn validate_widths(left_width: f64, right_width: f64) -> (f64, f64) {
     if left_width >= right_width {
-        log::trace!(
+        log::warn!(
             "Invalid widths: left_width ({}) is not smaller than right_width ({}). Switching the order.",
             left_width,
             right_width
@@ -232,16 +233,8 @@ pub fn map_peaks_across_runs(
     // println!("Number of reference features: {}", reference_features.len());
     // println!("Number of aligned features: {}", aligned_features.len());
 
-    // Sort features by retention time
-    let mut reference_features = reference_features.clone();
-    reference_features.sort_by(|a, b| {
-        a.exp_rt.as_multiple().unwrap()[0]
-            .partial_cmp(&b.exp_rt.as_multiple().unwrap()[0])
-            .unwrap()
-    });
-
     // Step 1: Map peaks from reference to query chromatogram
-    for ref_feature in &reference_features {
+    for ref_feature in &reference_features { // TODO: This is only a Vec of one element which contains inner Vecs of features
         let mut alignment_id = 0;
 
         for (i, &rt) in ref_feature.exp_rt.as_multiple().unwrap().iter().enumerate() {
@@ -267,7 +260,7 @@ pub fn map_peaks_across_runs(
                 );
                 peak_mappings.push(PeakMapping {
                     alignment_id, 
-                    reference_feature_id: *ref_feature.feature_id.clone().unwrap(),
+                    reference_feature_id: ref_feature.feature_id.clone().unwrap().as_multiple().unwrap()[i],
                     aligned_feature_id,
                     reference_rt: rt,
                     aligned_rt,
@@ -564,7 +557,7 @@ fn find_closest_feature(
             if diff <= tolerance && diff < min_diff {
                 min_diff = diff;
                 closest_match = Some((
-                    *feature.feature_id.clone().unwrap(), // feature_id
+                    feature.feature_id.clone().unwrap().as_multiple().unwrap()[i], // feature_id
                     rt,                                   // retention time
                     feature.left_width.as_ref().unwrap().as_multiple().unwrap()[i], // left_width
                     feature.right_width.as_ref().unwrap().as_multiple().unwrap()[i], // right_width
