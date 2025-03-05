@@ -728,7 +728,6 @@ pub fn reverse_rt_mapping(
     aligned_chromatogram: &AlignedChromatogram,
     alignment_config: &AlignmentConfig,
 ) -> Option<f64> {
-    println!("Alignment method: {}", alignment_config.method.as_str().to_lowercase());
     
     match alignment_config.method.to_lowercase().as_str() {
         "dtw" => {
