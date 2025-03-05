@@ -356,7 +356,7 @@ impl Runner {
 
         log::debug!("Aligning TICs using {:?} using reference type: {:?}", self.parameters.alignment.method.as_str(), self.parameters.alignment.reference_type);
         let start_time = Instant::now();
-        let aligned_chromatograms = match self.parameters.alignment.method.as_str() {
+        let aligned_chromatograms = match self.parameters.alignment.method.to_lowercase().as_str() {
             "dtw" => {
                 match self.parameters.alignment.reference_type.as_str() {
                     "star" => star_align_tics(smoothed_tics.clone(), &self.parameters.alignment)?,
@@ -373,7 +373,7 @@ impl Runner {
                     _ => star_align_tics_fft(smoothed_tics.clone(), &self.parameters.alignment)?,
                 }
             },
-            "fft_dtw" => star_align_tics_fft_with_local_refinement(smoothed_tics.clone(), &self.parameters.alignment)?,
+            "fftdtw" => star_align_tics_fft_with_local_refinement(smoothed_tics.clone(), &self.parameters.alignment)?,
             _ => star_align_tics(smoothed_tics.clone(), &self.parameters.alignment)?,
         };
         log::debug!("Alignment took: {:?}", start_time.elapsed());
@@ -439,7 +439,7 @@ impl Runner {
 
             // map_peaks_across_runs
             let mapped_peaks =
-                map_peaks_across_runs(chrom, ref_run_feat_data, current_run_feat_data, self.parameters.alignment.rt_mapping_tolerance.unwrap_or_default());
+                map_peaks_across_runs(chrom, ref_run_feat_data, current_run_feat_data, self.parameters.alignment.rt_mapping_tolerance.unwrap_or_default(), &self.parameters.alignment);
 
             // Append mapped peaks to the vector, use chrom.chromatogram.metadata.get("basename").unwrap() as the key
             mapped_prec_peaks.insert(
