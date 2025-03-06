@@ -123,7 +123,7 @@ pub struct SmoothingConfig {
 pub struct AlignmentConfig {
     /// Number of precursors to process in a batch per thread.
     pub batch_size: Option<usize>,
-    /// Method to use for alignment. Current options are "FFT", "DTW", "FFT_DTW"
+    /// Method to use for alignment. Current options are "FFT", "DTW", "FFTDTW"
     pub method: String,
     /// Type of reference to use for alignment. Current options are "star", "mst", "progressive"
     pub reference_type: String,

@@ -113,6 +113,7 @@ impl<T: Default> ValueEntryType<T> {
 pub struct FeatureData {
     pub filename: String,
     pub basename: String,
+    pub run_id: i64,
     pub precursor_id: i32,
     pub feature_id: Option<ValueEntryType<i64>>,
     pub exp_rt: ValueEntryType<f64>,
@@ -129,6 +130,7 @@ impl FeatureData {
     /// Creates a new FeatureData instance and extracts the basename from the filename.
     pub fn new(
         filename: String,
+        run_id: i64,
         precursor_id: i32,
         feature_id: Option<ValueEntryType<i64>>,
         exp_rt: ValueEntryType<f64>,
@@ -144,6 +146,7 @@ impl FeatureData {
         FeatureData {
             filename,
             basename,
+            run_id,
             precursor_id,
             feature_id,
             exp_rt,
@@ -586,6 +589,7 @@ impl OswAccess {
         let mut sql_query = r#"
             SELECT 
                 FILENAME,
+                RUN.ID AS RUN_ID,
                 FEATURE.PRECURSOR_ID,
                 EXP_RT
             FROM FEATURE
@@ -629,11 +633,13 @@ impl OswAccess {
         let feature_data_iter = stmt
             .query_map(params![], |row| {
                 let filename: String = row.get(0)?;
-                let precursor_id: i32 = row.get(1)?;
-                let exp_rt: f64 = row.get(2)?;
+                let run_id: i64 = row.get(1)?;
+                let precursor_id: i32 = row.get(2)?;
+                let exp_rt: f64 = row.get(3)?;
 
                 Ok(FeatureData::new(
                     filename,
+                    run_id,
                     precursor_id,
                     None,
                     ValueEntryType::Single(exp_rt),
@@ -699,6 +705,7 @@ impl OswAccess {
         let mut sql_query = r#"
             SELECT 
                 FILENAME,
+                RUN.ID AS RUN_ID,
                 FEATURE.PRECURSOR_ID,
                 EXP_RT
             FROM FEATURE
@@ -729,11 +736,13 @@ impl OswAccess {
         let feature_data_iter = stmt
             .query_map(params![], |row| {
                 let filename: String = row.get(0)?;
-                let precursor_id: i32 = row.get(1)?;
-                let exp_rt: f64 = row.get(2)?;
+                let run_id: i64 = row.get(1)?;
+                let precursor_id: i32 = row.get(2)?;
+                let exp_rt: f64 = row.get(3)?;
 
                 Ok(FeatureData::new(
                     filename,
+                    run_id,
                     precursor_id,
                     None,
                     ValueEntryType::Single(exp_rt),
@@ -770,6 +779,7 @@ impl OswAccess {
         let mut sql_query = r#"
             SELECT 
                 FILENAME,
+                RUN.ID AS RUN_ID,
                 FEATURE.PRECURSOR_ID,
                 FEATURE.ID AS FEATURE_ID,
                 EXP_RT,
@@ -831,11 +841,12 @@ impl OswAccess {
             .prepare(&sql_query)
             .map_err(OpenSwathSqliteError::from)?;
 
-        // println!("SQL Query: {}", sql_query);
+        // log::debug!("SQL Query: {}", sql_query);
 
         // Execute the query and collect results into a vector of FeatureData
         let feature_data_list: Vec<(
             String,
+            i64,
             i32,
             i64,
             f64,
@@ -847,27 +858,29 @@ impl OswAccess {
         )> = stmt
             .query_map(params![precursor_id], |row| {
                 let filename: String = row.get(0)?;
-                let precursor_id: i32 = row.get(1)?;
-                let feature_id: i64 = row.get(2)?;
-                let exp_rt: f64 = row.get(3)?;
-                let left_width: f64 = row.get(4)?;
-                let right_width: f64 = row.get(5)?;
-                let intensity: f64 = row.get(6)?;
+                let run_id: i64 = row.get(1)?;
+                let precursor_id: i32 = row.get(2)?;
+                let feature_id: i64 = row.get(3)?;
+                let exp_rt: f64 = row.get(4)?;
+                let left_width: f64 = row.get(5)?;
+                let right_width: f64 = row.get(6)?;
+                let intensity: f64 = row.get(7)?;
 
                 // Optional fields (if SCORE_MS2 exists)
                 let rank_option = if score_ms2_exists {
-                    Some(row.get::<_, i32>(7)?)
+                    Some(row.get::<_, i32>(8)?)
                 } else {
                     None
                 };
 
                 let qvalue_option = if score_ms2_exists {
-                    Some(row.get::<_, f64>(8)?)
+                    Some(row.get::<_, f64>(9)?)
                 } else {
                     None
                 };
                 Ok((
                     filename,
+                    run_id,
                     precursor_id,
                     feature_id,
                     exp_rt,
@@ -885,6 +898,7 @@ impl OswAccess {
 
         for (
             filename,
+            run_id,
             precursor_id,
             feature_id,
             exp_rt,
@@ -898,6 +912,7 @@ impl OswAccess {
             let entry = feature_data_map.entry(filename.clone()).or_insert_with(|| {
                 FeatureData::new(
                     filename,
+                    run_id,
                     precursor_id,
                     Some(ValueEntryType::Multiple(vec![])),
                     ValueEntryType::Multiple(vec![]),
@@ -943,6 +958,13 @@ impl OswAccess {
                 }
             }
         }
+        println!(
+            "Feature data map: {:?}",
+            feature_data_map
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect::<Vec<_>>()
+        );
 
         Ok(feature_data_map.into_values().collect())
     }
@@ -1080,6 +1102,8 @@ impl OswAccess {
             r#"
             CREATE TABLE IF NOT EXISTS FEATURE_MS2_ALIGNMENT (
                 ALIGNMENT_ID INTEGER,
+                PRECURSOR_ID INTEGER,
+                RUN_ID INTEGER,
                 REFERENCE_FEATURE_ID INTEGER,
                 ALIGNED_FEATURE_ID INTEGER,
                 REFERENCE_RT REAL,
@@ -1111,6 +1135,8 @@ impl OswAccess {
             CREATE INDEX IF NOT EXISTS idx_alignment_id ON FEATURE_MS2_ALIGNMENT (ALIGNMENT_ID);
             CREATE INDEX IF NOT EXISTS idx_reference_feature_id ON FEATURE_MS2_ALIGNMENT (REFERENCE_FEATURE_ID);
             CREATE INDEX IF NOT EXISTS idx_aligned_feature_id ON FEATURE_MS2_ALIGNMENT (ALIGNED_FEATURE_ID);
+            CREATE INDEX IF NOT EXISTS idx_precursor_id ON FEATURE_MS2_ALIGNMENT (PRECURSOR_ID);
+            CREATE INDEX IF NOT EXISTS idx_run_id ON FEATURE_MS2_ALIGNMENT (RUN_ID);
             "#,
             [],
         )
@@ -1138,13 +1164,13 @@ impl OswAccess {
                 .prepare(
                     r#"
                     INSERT INTO FEATURE_MS2_ALIGNMENT (
-                        alignment_id, reference_feature_id, aligned_feature_id,
+                        alignment_id, precursor_id, run_id, reference_feature_id, aligned_feature_id,
                         reference_rt, aligned_rt, reference_left_width, reference_right_width,
                         aligned_left_width, aligned_right_width, reference_filename, aligned_filename,
                         xcorr_coelution_to_reference, xcorr_shape_to_reference, mi_to_reference,
                         xcorr_coelution_to_all, xcorr_shape_to_all, mi_to_all,
                         retention_time_deviation, peak_intensity_ratio, label
-                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)
                     "#,
                 )
                 .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
@@ -1152,6 +1178,8 @@ impl OswAccess {
             for peak_mapping in peak_mappings {
                 stmt.execute(params![
                     peak_mapping.alignment_id,
+                    peak_mapping.precursor_id,
+                    peak_mapping.run_id,
                     peak_mapping.reference_feature_id,
                     peak_mapping.aligned_feature_id,
                     peak_mapping.reference_rt,

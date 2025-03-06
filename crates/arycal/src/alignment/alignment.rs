@@ -266,6 +266,8 @@ pub fn map_peaks_across_runs(
                 );
                 peak_mappings.push(PeakMapping {
                     alignment_id, 
+                    precursor_id: ref_feature.precursor_id.clone(),
+                    run_id: ref_feature.run_id.clone(),
                     reference_feature_id: ref_feature.feature_id.clone().unwrap().as_multiple().unwrap()[i],
                     aligned_feature_id,
                     reference_rt: rt,
@@ -431,6 +433,8 @@ fn remove_overlapping_peaks(peak_mappings: Vec<PeakMapping>) -> Vec<PeakMapping>
                         // Both peaks have missing IDs: compute a consensus peak
                         let consensus_peak = PeakMapping {
                             alignment_id: peak.alignment_id,
+                            precursor_id: peak.precursor_id,
+                            run_id: peak.run_id,
                             reference_feature_id: -1,
                             aligned_feature_id: -1,
                             reference_rt: (prev.reference_rt + peak.reference_rt) / 2.0,

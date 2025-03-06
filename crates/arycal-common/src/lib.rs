@@ -47,6 +47,10 @@ pub struct FullTraceAlignmentScores {
 pub struct PeakMapping {
     /// Alignment ID to group the same peaks across runs.
     pub alignment_id: i64,
+    /// Precursor ID
+    pub precursor_id: i32,
+    /// Run ID
+    pub run_id: i64,
     /// Feature ID in the reference chromatogram.
     pub reference_feature_id: i64,
     /// Feature ID in the aligned chromatogram.
