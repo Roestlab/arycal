@@ -1,5 +1,5 @@
 use rayon::prelude::*;
-use ndarray::Array1;
+use ndarray::{Array1, Array2};
 use std::collections::HashMap;
 use rand::{seq::SliceRandom, Rng};
 
@@ -361,11 +361,13 @@ pub fn create_decoy_peaks_by_shuffling(
         let mut aligned_rts: Vec<f64> = peaks.iter().map(|p| p.aligned_rt).collect();
         let mut aligned_left_widths: Vec<f64> = peaks.iter().map(|p| p.aligned_left_width).collect();
         let mut aligned_right_widths: Vec<f64> = peaks.iter().map(|p| p.aligned_right_width).collect();
+        let mut aligned_feature_ids: Vec<i64> = peaks.iter().map(|p| p.aligned_feature_id).collect();
 
         // Shuffle the aligned peak attributes
         aligned_rts.shuffle(&mut rng);
         aligned_left_widths.shuffle(&mut rng);
         aligned_right_widths.shuffle(&mut rng);
+        aligned_feature_ids.shuffle(&mut rng);
 
         // Assign the shuffled aligned peak attributes back to the peaks
         for (i, peak) in peaks.iter_mut().enumerate() {
@@ -380,7 +382,7 @@ pub fn create_decoy_peaks_by_shuffling(
 
             peak.aligned_left_width = aligned_left_widths[i];
             peak.aligned_right_width = aligned_right_widths[i];
-            peak.aligned_feature_id = -1; // Mark as decoy
+            peak.aligned_feature_id = aligned_feature_ids[i];
             peak.label = -1; // Mark as decoy
         }
     }
@@ -438,3 +440,35 @@ pub fn create_decoy_peaks_by_random_regions(
     decoy_peak_mappings
 }
 
+
+/// Creates a feature matrix and labels for all the peak mappings.
+pub fn create_feature_matrix(
+    peak_mappings: &HashMap<String, Vec<PeakMapping>>
+) -> (Array2<f64>, Array1<i32>) {
+
+    // feature matrix should be of shape len(peak_mappings) + inner len of each peak_mapping by 7 features
+    let nrows: usize = peak_mappings.iter().map(|(_, mappings)| mappings.len()).sum::<usize>() + peak_mappings.len();
+    let ncols = 8;
+    let mut feature_matrix = Array2::zeros((nrows, ncols));
+    let mut labels = Array1::zeros(nrows);
+
+    let mut row_idx = 0;
+    for (_filename, mappings) in peak_mappings.iter() {
+        for mapping in mappings {
+            feature_matrix.row_mut(row_idx).assign(&Array1::from(vec![
+                mapping.xcorr_coelution_to_ref.unwrap_or(0.0),
+                mapping.xcorr_shape_to_ref.unwrap_or(0.0),
+                mapping.mi_to_ref.unwrap_or(0.0),
+                mapping.xcorr_coelution_to_all.unwrap_or(0.0),
+                mapping.xcorr_shape_to_all.unwrap_or(0.0),
+                mapping.mi_to_all.unwrap_or(0.0),
+                mapping.rt_deviation.unwrap_or(-1.0), // TODO: Should this be -1.0 or some large value?
+                mapping.intensity_ratio.unwrap_or(0.0),
+            ]));
+            labels[row_idx] = mapping.label;
+            row_idx += 1;
+        }
+    }
+
+    (feature_matrix, labels)
+}
