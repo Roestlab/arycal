@@ -267,7 +267,7 @@ pub fn map_peaks_across_runs(
                 peak_mappings.push(PeakMapping {
                     alignment_id, 
                     precursor_id: ref_feature.precursor_id.clone(),
-                    run_id: ref_feature.run_id.clone(),
+                    run_id: aligned_features[0].feature_id.clone().unwrap().as_multiple().unwrap()[i],
                     reference_feature_id: ref_feature.feature_id.clone().unwrap().as_multiple().unwrap()[i],
                     aligned_feature_id,
                     reference_rt: rt,

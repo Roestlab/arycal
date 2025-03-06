@@ -379,7 +379,7 @@ pub fn create_decoy_peaks_by_shuffling(
                 aligned_left_widths[i] = aligned_right_widths[i];
                 aligned_right_widths[i] = temp;
             }
-
+            // log::debug!("Decoy feature_id: {}", aligned_feature_ids[i]);
             peak.aligned_left_width = aligned_left_widths[i];
             peak.aligned_right_width = aligned_right_widths[i];
             peak.aligned_feature_id = aligned_feature_ids[i];
