@@ -14,6 +14,7 @@ pub struct Input {
     pub features: FeaturesConfig,
     pub filters: FiltersConfig,
     pub alignment: AlignmentConfig,
+    pub disable_progress_bar: bool,
 }
 
 impl Input {

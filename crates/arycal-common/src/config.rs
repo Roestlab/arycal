@@ -2,7 +2,6 @@ use anyhow::Result;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::path::PathBuf;
 
-
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub enum XicFileType {
     SqMass,

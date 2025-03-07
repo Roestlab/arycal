@@ -124,7 +124,7 @@ impl Runner {
             .map(|batch| {
                 let mut batch_results = Vec::new();
                 let mut progress = None;
-                if log::Level::Trace != log::max_level() {
+                if !self.parameters.disable_progress_bar {
                     progress = Some(Progress::new(
                         batch.len(),
                         format!(
@@ -137,7 +137,7 @@ impl Runner {
                 for precursor in batch {
                     let result = self.process_precursor(precursor).map_err(|e| ArycalError::Custom(e.to_string()));
                     batch_results.push(result);
-                    if log::Level::Trace!=log::max_level() {
+                    if !self.parameters.disable_progress_bar {
                         progress.as_ref().expect("The Progess tqdm logger is not enabled").inc();
                     }
                 }
@@ -210,7 +210,7 @@ impl Runner {
             .map(|batch| {
                 let mut batch_results = Vec::new();
                 let mut progress = None;
-                if log::Level::Trace != log::max_level() {
+                if !self.parameters.disable_progress_bar {
                     progress = Some(Progress::new(
                         batch.len(),
                         format!(
@@ -225,8 +225,8 @@ impl Runner {
                 for precursor in batch {
                     let result = self.process_precursor(precursor).map_err(|e| ArycalError::Custom(e.to_string()));
                     batch_results.push(result);
-                    if let Some(prog) = &progress {
-                        prog.inc();
+                    if !self.parameters.disable_progress_bar {
+                        progress.as_ref().expect("The Progess tqdm logger is not enabled").inc();
                     }
                 }
                 Ok(batch_results)
@@ -316,6 +316,7 @@ impl Runner {
             .sum::<usize>()
             < 10
         {
+            log::warn!("The first chromatogram has less than 10 points, skipping precursor: {:?}", precursor.precursor_id);
             return Ok(HashMap::new());
         }
 
@@ -323,6 +324,7 @@ impl Runner {
         for chrom in chromatograms.iter() {
             for (_, chrom_data) in chrom.chromatograms.iter() {
                 if chrom_data.intensities.iter().any(|&x| x.is_nan()) || chrom_data.retention_times.iter().any(|&x| x.is_nan()) {
+                    log::warn!("NaN values detected in chromatograms, skipping precursor: {:?}", precursor.precursor_id);
                     return Ok(HashMap::new());
                 }
             }
@@ -411,11 +413,10 @@ impl Runner {
                     .collect(),
             )?;
 
-        let mut mapped_prec_peaks: HashMap<String, Vec<arycal_common::PeakMapping>> =
-            HashMap::new();
+        let mut mapped_prec_peaks: HashMap<String, Vec<arycal_common::PeakMapping>> = HashMap::new();
         for (_i, chrom) in aligned_chromatograms.iter().enumerate() {
-            log::trace!("Mapping Aligned Peaks for : {:?}", chrom.chromatogram.metadata.get("basename").unwrap());
             let current_run = chrom.chromatogram.metadata.get("basename").unwrap();
+            log::trace!("Mapping peaks from reference run: {} to current run: {}", chrom.rt_mapping[0].get("run1").unwrap(), current_run);
 
             // Filter prec_feat_data for current run and map aligned RTs to feature data
             let current_run_feat_data: Vec<arycal_cloudpath::osw::FeatureData> = prec_feat_data
@@ -433,7 +434,7 @@ impl Runner {
 
             // Check if current_run_feat_data and ref_run_feat_data are empty
             if current_run_feat_data.is_empty() || ref_run_feat_data.is_empty() {
-                log::debug!("Current run feature data or reference run feature data is empty");
+                log::warn!("Current run feature data or reference run feature data is empty, skipping peak mapping for run: {}", current_run);
                 continue;
             }
 
@@ -451,8 +452,6 @@ impl Runner {
                     .to_string(),
                 mapped_peaks,
             );
-
-            
         }
         log::debug!("Peak mapping took: {:?}", start_time.elapsed());
 
@@ -678,10 +677,13 @@ impl Runner {
         let mut batch = Vec::new();
         let batch_size = 1000; 
     
-        let progress = Progress::new(
-            results.len(),
-            "[arycal] Writing FEATURE_ALIGNMENT table to the database",
-        );
+        let mut progress = None;
+        if !self.parameters.disable_progress_bar {
+            progress = Some(Progress::new(
+                results.len(),
+                "[arycal] Writing FEATURE_ALIGNMENT table to the database",
+            ));
+        }
     
         for result in results.iter() { // Iterate by reference
             match result {
@@ -704,8 +706,9 @@ impl Runner {
                     log::warn!("[arycal] Skipping result due to error: {:?}", err);
                 }
             }
-    
-            progress.inc();
+            if !self.parameters.disable_progress_bar {
+                progress.as_ref().expect("The Progess tqdm logger is not enabled").inc();
+            }
         }
     
         // Insert any remaining records
@@ -731,10 +734,13 @@ impl Runner {
         let mut batch = Vec::new();
         let batch_size = 1000; 
     
-        let progress = Progress::new(
-            results.len(),
-            "[arycal] Writing FEATURE_MS2_ALIGNMENT table to the database",
-        );
+        let mut progress = None;
+        if !self.parameters.disable_progress_bar {
+            progress = Some(Progress::new(
+                results.len(),
+                "[arycal] Writing FEATURE_MS2_ALIGNMENT table to the database",
+            ));
+        }
     
         for result in results.iter() { // Iterate by reference
             match result {
@@ -757,8 +763,9 @@ impl Runner {
                     log::warn!("[arycal] Skipping result due to error: {:?}", err);
                 }
             }
-    
-            progress.inc();
+            if !self.parameters.disable_progress_bar {
+                progress.as_ref().expect("The Progess tqdm logger is not enabled").inc();
+            }
         }
     
         // Insert any remaining records
@@ -785,11 +792,14 @@ impl Runner {
     
         let mut batch = Vec::new();
         let batch_size = 1000; 
-    
-        let progress = Progress::new(
-            results.len(),
-            "[arycal] Writing FEATURE_TRANSITION_ALIGNMENT table to the database",
-        );
+        
+        let mut progress: Option<Progress> = None;
+        if !self.parameters.disable_progress_bar {
+            let progress: Option<Progress> = Some(Progress::new(
+                results.len(),
+                "[arycal] Writing FEATURE_TRANSITION_ALIGNMENT table to the database",
+            ));
+        }   
     
         for result in results.iter() { // Iterate by reference
             match result {
@@ -815,8 +825,9 @@ impl Runner {
                     );
                 }
             }
-    
-            progress.inc();
+            if !self.parameters.disable_progress_bar {
+                progress.as_ref().expect("The Progess tqdm logger is not enabled").inc();
+            }
         }
     
         // Insert any remaining records
