@@ -67,12 +67,13 @@ pub fn create_fft_rt_mapping(
     let mut mapping = Vec::new();
 
     // Iterate over retention times in chrom1
-    for (i, &rt1) in shifted_chrom2.retention_times.iter().enumerate() {
+    for (i, &_shifted_rt2) in shifted_chrom2.retention_times.iter().enumerate() {
         // Calculate the corresponding index in chrom2 using the lag
         // let j = (i as isize + lag) as usize;
 
         // Check if the index is valid within chrom2
         // if j < chrom2.retention_times.len() {
+        let rt1 = chrom1.retention_times[i];
         let rt2 = chrom2.retention_times[i];
 
         // Create a mapping entry

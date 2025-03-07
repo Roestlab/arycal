@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::f64;
 use arycal_common::config::{AlignmentConfig, SmoothingConfig};
+use rand::seq::IndexedRandom;
 use union_find::{QuickFindUf, UnionBySize, UnionFind};
 
 use arycal_cloudpath::osw::{FeatureData, ValueEntryType};
@@ -98,7 +99,7 @@ impl AlignmentMethod {
         match self {
             AlignmentMethod::DTW => "dtw",
             AlignmentMethod::FFT => "ffw",
-            AlignmentMethod::FFTDTW => "fft_dtw",
+            AlignmentMethod::FFTDTW => "fftdtw",
         }
     }
     
@@ -231,8 +232,7 @@ pub fn map_peaks_across_runs(
 ) -> Vec<PeakMapping> {
     let mut peak_mappings = Vec::new();
 
-    // println!("Number of reference features: {}", reference_features.len());
-    // println!("Number of aligned features: {}", aligned_features.len());
+    log::trace!("There are {} reference features and {} query features to map", reference_features[0].feature_id.clone().unwrap().as_multiple().unwrap().len(), aligned_features[0].feature_id.clone().unwrap().as_multiple().unwrap().len() );
 
     // Step 1: Map peaks from reference to query chromatogram
     for ref_feature in &reference_features { // TODO: This is only a Vec of one element which contains inner Vecs of features
@@ -243,18 +243,20 @@ pub fn map_peaks_across_runs(
             let target_rt = map_retention_time(rt, &aligned_chrom.rt_mapping);
 
             // Reverse the rt_mapping to get the aligned query rt in it's original space
-            let original_target_rt = reverse_rt_mapping(target_rt, &aligned_chrom, alignment_config).unwrap();
+            // let original_target_rt = reverse_rt_mapping(target_rt, &aligned_chrom, alignment_config).unwrap();
 
 
-            log::trace!("Mapping query aligned RT: {:?} / original RT: {:?} to reference RT: {:?}", target_rt, original_target_rt, rt);
+            log::trace!("Mapping closest aligned query RT: {:?} to reference RT feature: {:?}", target_rt, rt);
 
             // Generate alignment_id based on reference_rt (or another unique identifier)
             // let alignment_id = rt.to_bits() as i64; // Use the bits of the reference_rt as alignment_id
 
             if let Some((aligned_feature_id, aligned_rt, aligned_left_width, aligned_right_width)) =
-                find_closest_feature(original_target_rt, &aligned_features, rt_tolerance)
+                find_closest_feature(target_rt, &aligned_features, rt_tolerance)
             {
-                log::trace!("Found query feature mapping to reference feature: {:?}", aligned_feature_id);
+                log::trace!("Found query feature (id: {}) mapping to reference feature (id: {}): {} -> {}", aligned_feature_id, ref_feature.feature_id.clone().unwrap().as_multiple().unwrap()[i], aligned_rt, rt);
+
+                // TODO: Really shouldn't need to have to validate widths, as these are derived from OpenSwath 
                 let (validated_left_width_ref, validated_right_width_ref) = validate_widths(
                     ref_feature.left_width.as_ref().unwrap().as_multiple().unwrap()[i],
                     ref_feature.right_width.as_ref().unwrap().as_multiple().unwrap()[i],
@@ -264,10 +266,11 @@ pub fn map_peaks_across_runs(
                     aligned_left_width,
                     aligned_right_width,
                 );
+                
                 peak_mappings.push(PeakMapping {
                     alignment_id, 
                     precursor_id: ref_feature.precursor_id.clone(),
-                    run_id: aligned_features[0].feature_id.clone().unwrap().as_multiple().unwrap()[i],
+                    run_id: aligned_features[0].run_id.clone(),
                     reference_feature_id: ref_feature.feature_id.clone().unwrap().as_multiple().unwrap()[i],
                     aligned_feature_id,
                     reference_rt: rt,
@@ -289,7 +292,7 @@ pub fn map_peaks_across_runs(
                     intensity_ratio: None,
                 });
             } else {
-                log::trace!("Reference peak not found in query chromatogram: {:?}", rt);
+                log::trace!("Couldn't find a matching feature for reference RT: {:?} with id: {}", rt, ref_feature.feature_id.clone().unwrap().as_multiple().unwrap()[i]);
                 // // Recover missing peak in the query chromatogram
                 // log::trace!("Recovering missing peak in query chromatogram for reference RT: {:?}", rt);
                 // let (validated_left_width_ref, validated_right_width_ref) = validate_widths(
@@ -374,9 +377,9 @@ pub fn map_peaks_across_runs(
     // }
 
     // Step 3: Remove overlapping peaks
-    let filtered_peaks = remove_overlapping_peaks(peak_mappings);
+    // let filtered_peaks = remove_overlapping_peaks(peak_mappings);
 
-    filtered_peaks
+    peak_mappings
 }
 
 /// Removes overlapping peaks within the same run by comparing peak boundaries.
@@ -488,6 +491,7 @@ fn remove_overlapping_peaks(peak_mappings: Vec<PeakMapping>) -> Vec<PeakMapping>
 /// Maps a retention time from the reference chromatogram to the aligned chromatogram.
 fn map_retention_time(rt: f64, rt_mapping: &[HashMap<String, String>]) -> f64 {
     // If the mapping is empty, return the original RT (no mapping)
+    // TODO: Should we panic here instead?
     if rt_mapping.is_empty() {
         return rt;
     }
@@ -572,10 +576,11 @@ fn find_closest_feature(
                     feature.left_width.as_ref().unwrap().as_multiple().unwrap()[i], // left_width
                     feature.right_width.as_ref().unwrap().as_multiple().unwrap()[i], // right_width
                 ));
+                log::trace!("Found closest potential matching feature to {} target rt: {:?}", target_rt, closest_match);
             }
         }
     }
-
+    log::trace!("Returning  final closest match: {:?}", closest_match);
     closest_match
 }
 
@@ -736,63 +741,52 @@ pub fn reverse_rt_mapping(
     match alignment_config.method.to_lowercase().as_str() {
         "dtw" => {
             log::debug!("Getting original RT for aligned RT: {} using DTW alignment", aligned_rt); 
-            // For DTW, use the alignment path to reverse the mapping
-            let alignment_path = &aligned_chromatogram.alignment_path;
 
-            // Find the closest point in the aligned chromatogram's RTs
-            let aligned_rts: Vec<f64> = alignment_path
-                .iter()
-                .map(|&(_, j)| aligned_chromatogram.chromatogram.retention_times[j])
-                .collect();
+            // Use rt_mapping to get index where target_rt is closest to 'rt1'
+            let ref_rts = aligned_chromatogram.rt_mapping.iter().map(|m| m.get("rt1").unwrap().parse::<f64>().unwrap()).collect::<Vec<f64>>();
 
-            let closest_index = find_closest_index(&aligned_rts, aligned_rt)?;
+            let closest_index = find_closest_index(&ref_rts, aligned_rt)?;
 
             // Map back to the original RT using the alignment path
-            let (original_index, _) = alignment_path[closest_index];
-            Some(aligned_chromatogram.chromatogram.retention_times[original_index])
+            let query_rts = aligned_chromatogram.rt_mapping.iter().map(|m| m.get("rt2").unwrap().parse::<f64>().unwrap()).collect::<Vec<f64>>();
+
+            Some(query_rts[closest_index])
         }
         "fft" => {
             log::debug!("Getting original RT for aligned RT: {} using FFT alignment", aligned_rt);
             // For FFT, use the lag to reverse the mapping
             let lag = aligned_chromatogram.lag? as f64;
-            Some(aligned_rt - lag)
+            Some(aligned_rt + lag)
         }
         "fftdtw" => {
             log::debug!("Getting original RT for aligned RT: {} using FFT-DTW alignment", aligned_rt);
             // For FFT-DTW, first reverse the FFT shift, then reverse the DTW mapping
             let lag = aligned_chromatogram.lag? as f64;
-            let shifted_rt = aligned_rt - lag;
+            let shifted_rt = aligned_rt + lag;
 
             // Use the alignment path to reverse the DTW mapping
-            let alignment_path = &aligned_chromatogram.alignment_path;
+            let ref_rts = aligned_chromatogram.rt_mapping.iter().map(|m| m.get("rt1").unwrap().parse::<f64>().unwrap()).collect::<Vec<f64>>();
 
-            // Find the closest point in the aligned chromatogram's RTs
-            let aligned_rts: Vec<f64> = alignment_path
-                .iter()
-                .map(|&(_, j)| aligned_chromatogram.chromatogram.retention_times[j])
-                .collect();
-
-            let closest_index = find_closest_index(&aligned_rts, shifted_rt)?;
+            let closest_index = find_closest_index(&ref_rts, shifted_rt)?;
 
             // Map back to the original RT using the alignment path
-            let (original_index, _) = alignment_path[closest_index];
-            Some(aligned_chromatogram.chromatogram.retention_times[original_index])
+            let query_rts = aligned_chromatogram.rt_mapping.iter().map(|m| m.get("rt2").unwrap().parse::<f64>().unwrap()).collect::<Vec<f64>>();
+
+            Some(query_rts[closest_index])
         }
         _ => {
             // Default to DTW behavior if the method is unknown
-            let alignment_path = &aligned_chromatogram.alignment_path;
+            log::debug!("Getting original RT for aligned RT: {} using default DTW alignment", aligned_rt);
 
-            // Find the closest point in the aligned chromatogram's RTs
-            let aligned_rts: Vec<f64> = alignment_path
-                .iter()
-                .map(|&(_, j)| aligned_chromatogram.chromatogram.retention_times[j])
-                .collect();
+            // Use rt_mapping to get index where target_rt is closest to 'rt1'
+            let ref_rts = aligned_chromatogram.rt_mapping.iter().map(|m| m.get("rt1").unwrap().parse::<f64>().unwrap()).collect::<Vec<f64>>();
 
-            let closest_index = find_closest_index(&aligned_rts, aligned_rt)?;
+            let closest_index = find_closest_index(&ref_rts, aligned_rt)?;
 
             // Map back to the original RT using the alignment path
-            let (original_index, _) = alignment_path[closest_index];
-            Some(aligned_chromatogram.chromatogram.retention_times[original_index])
+            let query_rts = aligned_chromatogram.rt_mapping.iter().map(|m| m.get("rt2").unwrap().parse::<f64>().unwrap()).collect::<Vec<f64>>();
+
+            Some(query_rts[closest_index])
         }
     }
 }
