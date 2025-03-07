@@ -958,13 +958,6 @@ impl OswAccess {
                 }
             }
         }
-        println!(
-            "Feature data map: {:?}",
-            feature_data_map
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect::<Vec<_>>()
-        );
 
         Ok(feature_data_map.into_values().collect())
     }
