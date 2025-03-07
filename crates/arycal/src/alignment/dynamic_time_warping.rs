@@ -17,7 +17,7 @@ use arycal_cloudpath::util::extract_basename;
 /// # Parameters
 /// - `chrom1`: The first chromatogram
 /// - `chrom2`: The second chromatogram
-/// - `optimal_path`: The optimal path calculated by `traceback_optimal_path`
+/// - `optimal_path`: The optimal path calculated by `dtw.path`
 /// 
 /// # Returns
 /// - A tuple of two aligned chromatograms
