@@ -4,7 +4,9 @@ use arycal_cli::input::Input;
 use config::AppConfig;
 
 use eframe::App;
-use egui::{CentralPanel, ScrollArea, SidePanel, TextEdit, Ui, Window};
+use egui::{CentralPanel, ScrollArea, Sense, SidePanel, TextEdit, Ui, Window};
+use env_logger::{Builder, Target};
+use log::{error, info};
 use rfd::FileDialog;
 use serde_json;
 use std::fs;
@@ -32,11 +34,25 @@ impl ArycalApp {
     }
 
     pub fn show(&mut self, ctx: &egui::Context) {
+        // Load image loaders
+        egui_extras::install_image_loaders(ctx);
+
         SidePanel::left("config_panel")
             .default_width(self.sidebar_width)
             .resizable(true)
             .show(ctx, |ui| {
-                self.edit_config(ui, ctx);
+                ui.vertical(|ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        ui.add(
+                            egui::Image::new(egui::include_image!("../../../assets/img/arycal_logo.png"))
+                                .corner_radius(5)
+                        );
+                        ui.heading("Arycal Configuration");
+                        ui.add_space(10.0);
+                        ui.separator();
+                        self.edit_config(ui, ctx);
+                    });
+                });
             });
 
         CentralPanel::default().show(ctx, |ui| {
@@ -53,8 +69,6 @@ impl ArycalApp {
         );
 
         ui.label("Type of XIC files");
-        // ui.text_edit_singleline(&mut self.config.xic.r#type);
-        // Make a drop-down list for the type of XIC files (currently only sqMass type is supported)
         egui::containers::ComboBox::from_id_salt("xic_type")
             .selected_text(
                 self.config
@@ -87,7 +101,6 @@ impl ArycalApp {
         ui.heading("Features Configuration");
 
         ui.label("Type of feature files");
-        // ui.text_edit_singleline(&mut self.config.features.r#type);
         egui::containers::ComboBox::from_id_salt("features_type")
             .selected_text(
                 self.config
@@ -137,8 +150,6 @@ impl ArycalApp {
         }
 
         ui.label("Alignment Method");
-        // ui.text_edit_singleline(&mut self.config.alignment.method);
-        // Make a drop-down list for the alignment method (currently DTW or FFT or FFT+DTW
         egui::containers::ComboBox::from_id_salt("alignment_method")
             .selected_text(self.config.alignment.method.clone().to_uppercase())
             .show_ui(ui, |ui| {
@@ -152,7 +163,6 @@ impl ArycalApp {
             });
 
         ui.label("Reference Type");
-        // Make drop-down list for the reference type (currently star, MST, or progressive)
         egui::containers::ComboBox::from_id_salt("reference_type")
             .selected_text(self.config.alignment.reference_type.clone().to_uppercase())
             .show_ui(ui, |ui| {
@@ -174,40 +184,28 @@ impl ArycalApp {
             });
 
         ui.label("Reference File");
-        // Two columns, one checkbox, and one selector for the basename of files in xic file paths
-        ui.horizontal(|ui| {
-            // Check if reference_run is not none/null
-            let mut use_reference = self.config.alignment.reference_run.is_some();
-            ui.checkbox(&mut use_reference, "Use Reference Run");
-
-            // Enable or disable the reference file selection box based on the checkbox
-            if use_reference {
-                egui::containers::ComboBox::from_id_salt("reference_file")
-                    .selected_text(
-                        self.config
-                            .alignment
-                            .reference_run
-                            .clone()
-                            .unwrap_or_default(),
-                    )
-                    .show_ui(ui, |ui| {
-                        for path in self.config.xic.file_paths.iter() {
-                            if let Some(file_name) = path.file_name() {
-                                if let Some(file_name) = file_name.to_str() {
-                                    ui.selectable_value(
-                                        &mut self.config.alignment.reference_run,
-                                        Some(file_name.to_string()),
-                                        file_name,
-                                    );
-                                }
-                            }
+        egui::containers::ComboBox::from_id_salt("reference_file")
+            .selected_text(
+                self.config
+                    .alignment
+                    .reference_run
+                    .clone()
+                    .unwrap_or_default(),
+            )
+            .show_ui(ui, |ui| {
+                for path in self.config.xic.file_paths.iter() {
+                    if let Some(file_name) = path.file_name() {
+                        if let Some(file_name) = file_name.to_str() {
+                            ui.selectable_value(
+                                &mut self.config.alignment.reference_run,
+                                Some(file_name.to_string()),
+                                file_name,
+                            );
                         }
-                    });
-            } else {
-                // Only set reference_run to None if the checkbox is unchecked
-                self.config.alignment.reference_run = None;
-            }
-        });
+                    }
+                }
+            });
+
 
         ui.checkbox(&mut self.config.alignment.use_tic, "Use TIC");
         ui.add(
@@ -218,6 +216,46 @@ impl ArycalApp {
             egui::Slider::new(&mut self.config.alignment.smoothing.sgolay_order, 1..=5)
                 .text("Savitzky-Golay Order"),
         );
+
+        ui.label("RT Mapping Tolerance");
+        let mut rt_mapping_tolerance_str = self
+            .config
+            .alignment
+            .rt_mapping_tolerance
+            .unwrap_or_default()
+            .to_string();
+        ui.text_edit_singleline(&mut rt_mapping_tolerance_str);
+        if let Ok(rt_mapping_tolerance) = rt_mapping_tolerance_str.parse::<f64>() {
+            self.config.alignment.rt_mapping_tolerance = Some(rt_mapping_tolerance);
+        }
+
+        ui.label("Decoy Peak Mapping Method");
+        egui::containers::ComboBox::from_id_salt("decoy_peak_mapping_method")
+            .selected_text(self.config.alignment.decoy_peak_mapping_method.clone())
+            .show_ui(ui, |ui| {
+                ui.selectable_value(
+                    &mut self.config.alignment.decoy_peak_mapping_method,
+                    "SHUFFLE".to_string(),
+                    "shuffle",
+                );
+                ui.selectable_value(
+                    &mut self.config.alignment.decoy_peak_mapping_method,
+                    "RANDOM_REGION".to_string(),
+                    "random_region",
+                );
+            });
+
+        ui.label("Decoy Window Size");
+        let mut decoy_window_size_str = self
+            .config
+            .alignment
+            .decoy_window_size
+            .unwrap_or_default()
+            .to_string();
+        ui.text_edit_singleline(&mut decoy_window_size_str);
+        if let Ok(decoy_window_size) = decoy_window_size_str.parse::<usize>() {
+            self.config.alignment.decoy_window_size = Some(decoy_window_size);
+        }
 
         ui.add_space(25.0);
 
@@ -257,15 +295,21 @@ impl ArycalApp {
         file_paths: &mut Vec<std::path::PathBuf>,
         file_type_name: &str,
     ) {
-        // Drag & Drop Zone
+        // Drag & Drop Zone with Fixed Size
         ui.group(|ui| {
             ui.label(format!("Drag and drop {} files here:", file_type_name));
 
-            let dropped_files = ui.input(|i| i.raw.dropped_files.clone());
-            if !dropped_files.is_empty() {
-                for file in dropped_files {
-                    if let Some(path) = file.path {
-                        file_paths.push(path);
+            let drop_zone_size = egui::vec2(ui.available_width(), 25.0); 
+            let drop_zone_rect = ui.allocate_space(drop_zone_size); // Create a fixed-size drop zone
+
+            let response = ui.interact(drop_zone_rect.1, ui.id().with(file_type_name), Sense::hover());
+            if response.hovered() {
+                let dropped_files = ui.input(|i| i.raw.dropped_files.clone());
+                if !dropped_files.is_empty() {
+                    for file in dropped_files {
+                        if let Some(path) = file.path {
+                            file_paths.push(path);
+                        }
                     }
                 }
             }
@@ -377,6 +421,9 @@ impl ArycalApp {
                             ui.label(msg);
                         }
                     });
+
+                    // Show progress bar
+                    ui.add(egui::ProgressBar::new(0.5).animate(true));
                 });
         }
     }
@@ -393,67 +440,77 @@ use std::io;
 use std::io::{BufRead, BufReader};
 use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::process::{Command, Stdio};
+use std::error::Error;
 
 impl ArycalApp {
-    fn run_alignment(&mut self, ctx: &egui::Context) -> Result<(), Box<dyn std::error::Error>> {
+    fn run_alignment(&mut self, ctx: &Context) -> Result<(), Box<dyn Error>> {
         let log_messages = Arc::clone(&self.log_messages);
-        let config = self.config.clone();
+        let config = Arc::new(self.config.clone()); // ✅ Clone `config` into an `Arc`
 
-        // Wrap `ctx` in an `Arc`
-        let ctx = Arc::new(ctx.clone());
+        // // Wrap `ctx` in an `Arc`
+        // let ctx = Arc::new(ctx.clone());
 
-        // Create pipes for capturing stdout and stderr
-        let (reader, writer) = pipe()?;
-        let reader_stderr = reader.try_clone()?; // Clone reader for stderr capture
+        // // Create pipes for capturing stdout and stderr
+        // let (reader, writer) = pipe()?;
+        // let reader_stderr = reader.try_clone()?; // Clone reader for stderr capture
 
-        // Save the original stdout and stderr
-        let original_stdout = io::stdout();
-        let original_stderr = io::stderr();
+        // // Set up env_logger to redirect logs to our pipe
+        // let mut builder = Builder::new();
+        // builder.target(Target::Pipe(Box::new(writer.try_clone()?))); // Redirect logs to the pipe
+        // builder.init();
 
-        // Replace stdout and stderr with our pipe
-        unsafe {
-            libc::dup2(writer.as_raw_fd(), original_stdout.as_raw_fd());
-            libc::dup2(writer.as_raw_fd(), original_stderr.as_raw_fd());
-        }
+        // // Save the original stdout and stderr
+        // let original_stdout = io::stdout();
+        // let original_stderr = io::stderr();
 
-        // Spawn a thread to read from the pipe and log messages
-        let log_messages_clone = Arc::clone(&log_messages);
-        let ctx_clone = Arc::clone(&ctx);
-        thread::spawn(move || {
-            let reader = BufReader::new(reader);
-            for line in reader.lines() {
-                if let Ok(line) = line {
-                    let mut log = log_messages_clone.lock().unwrap();
-                    log.push(line);
-                }
-                ctx_clone.request_repaint(); // Force UI to update
-            }
-        });
+        // // Replace stdout and stderr with our pipe
+        // unsafe {
+        //     libc::dup2(writer.as_raw_fd(), original_stdout.as_raw_fd());
+        //     libc::dup2(writer.as_raw_fd(), original_stderr.as_raw_fd());
+        // }
+
+        log::info!("Starting alignment...");
+
+        // // Spawn a thread to read from the pipe and update UI
+        // let log_messages_clone = Arc::clone(&log_messages);
+        // let ctx_clone = Arc::clone(&ctx);
+        // thread::spawn(move || {
+        //     let reader_send = BufReader::new(reader);
+        //     for line in reader_send.lines() {
+        //         log::info!("LINE: {}", line.as_ref().unwrap());
+        //         if let Ok(line) = line {
+        //             let mut log = log_messages_clone.lock().unwrap();
+        //             log.push(line);
+        //         }
+        //         ctx_clone.request_repaint(); // Force UI update
+        //     }
+        // });
 
         // Run the alignment in another thread
         let log_messages_clone = Arc::clone(&log_messages);
+        let config_clone = Arc::clone(&config); // ✅ Clone `config` so it can be moved into the thread
         thread::spawn(move || {
-            let runner = Runner::new(config).unwrap();
+            let runner = Runner::new((*config_clone).clone()).unwrap();
             match runner.run() {
                 Ok(_) => {
                     log_messages_clone
                         .lock()
                         .unwrap()
                         .push("Alignment completed successfully.".to_string());
+                    info!("Alignment completed successfully.");
                 }
                 Err(e) => {
-                    log_messages_clone
-                        .lock()
-                        .unwrap()
-                        .push(format!("Error running alignment: {}", e));
+                    let error_message = format!("Error running alignment: {}", e);
+                    log_messages_clone.lock().unwrap().push(error_message.clone());
+                    error!("{}", error_message);
                 }
             }
 
-            // Restore original stdout and stderr
-            unsafe {
-                libc::dup2(original_stdout.as_raw_fd(), io::stdout().as_raw_fd());
-                libc::dup2(original_stderr.as_raw_fd(), io::stderr().as_raw_fd());
-            }
+            // // Restore original stdout and stderr
+            // unsafe {
+            //     libc::dup2(original_stdout.as_raw_fd(), io::stdout().as_raw_fd());
+            //     libc::dup2(original_stderr.as_raw_fd(), io::stderr().as_raw_fd());
+            // }
         });
 
         Ok(())
