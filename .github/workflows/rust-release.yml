@@ -23,7 +23,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - target: x86_64-unknown-linux-gnu
+          - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
           - target: x86_64-apple-darwin
             os: macos-latest
@@ -32,7 +32,26 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: taiki-e/upload-rust-binary-action@v1
+
+      - name: Install musl-tools (for Linux builds)
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get install -y musl-tools
+
+      - name: Set up SQLite for Windows builds
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        run: |
+          # Download SQLite amalgamation source
+          curl -L https://sqlite.org/2024/sqlite-amalgamation-3450100.zip -o sqlite.zip
+          unzip sqlite.zip -d sqlite
+          cd sqlite
+          # Compile SQLite into a static library
+          cl /c /Fosqlite3.obj sqlite3.c
+          lib /OUT:sqlite3.lib sqlite3.obj
+          # Set the SQLite library path for the linker
+          echo "SQLITE_LIB_PATH=$(pwd)" >> $GITHUB_ENV
+
+      - name: Build and upload binaries
+        uses: taiki-e/upload-rust-binary-action@v1
         with:
           # (required) Comma-separated list of binary names (non-extension portion of filename) to build and upload.
           # Note that glob pattern is not supported yet.
@@ -53,7 +72,12 @@ jobs:
           zip: windows
           # (required) GitHub token for uploading assets to GitHub Releases.
           token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: taiki-e/upload-rust-binary-action@v1
+        env:
+          # For Windows builds, set the SQLite library path
+          LIB: ${{ env.SQLITE_LIB_PATH }}
+
+      - name: Build and upload GUI binaries
+        uses: taiki-e/upload-rust-binary-action@v1
         with:
           # (required) Comma-separated list of binary names (non-extension portion of filename) to build and upload.
           # Note that glob pattern is not supported yet.
@@ -74,3 +98,6 @@ jobs:
           zip: windows
           # (required) GitHub token for uploading assets to GitHub Releases.
           token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          # For Windows builds, set the SQLite library path
+          LIB: ${{ env.SQLITE_LIB_PATH }}
