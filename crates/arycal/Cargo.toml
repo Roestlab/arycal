@@ -12,6 +12,7 @@ log = "0.4.14"
 ndarray = "0.15"
 # ndarray = { version = "0.15", features = ["blas"] }
 # blas-src = { version = "0.10", features = ["openblas"] }
+rusqlite = { version = "0.33.0", features = ["bundled"] }  
 r2d2 = "0.8.0"       # Connection pooling
 r2d2_sqlite = "0.26.0" # SQLite connection manager for r2d2
 nalgebra = "0.33.0"
@@ -24,11 +25,3 @@ dtw_rs = "0.9.5"
 
 # linfa = "0.7.1"
 # linfa-clustering = "0.7.1"
-
-# Conditional dependency for Windows
-[target.'cfg(windows)'.dependencies]
-rusqlite = { version = "0.33.0", features = ["bundled"] }  # Bundle sqlite for windows
-
-# Default dependency for non-Windows platforms
-[target.'cfg(not(windows))'.dependencies]
-rusqlite = "0.33.0"  
