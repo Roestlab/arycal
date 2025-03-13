@@ -1,0 +1,38 @@
+name: Rust
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install system dependencies
+      run: sudo apt-get install -y libxgboost-dev libgomp1 build-essential clang libstdc++-12-dev
+
+    - name: Set up Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+
+    - name: Verify Rust version
+      run: rustc --version
+
+    - name: Update dependencies
+      run: cargo update
+
+    - name: Build cli
+      run: cargo build --verbose --release --bin arycal
+
+    - name: Build gui
+      run: cargo build --verbose --release --bin arycal-gui
