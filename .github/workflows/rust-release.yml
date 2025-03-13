@@ -37,13 +37,19 @@ jobs:
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: sudo apt-get install -y musl-tools
 
+      - name: Set up Visual Studio Build Tools (for Windows builds)
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       - name: Set up SQLite for Windows builds
         if: matrix.target == 'x86_64-pc-windows-msvc'
         run: |
           # Download SQLite amalgamation source
           curl -L https://sqlite.org/2024/sqlite-amalgamation-3450100.zip -o sqlite.zip
           unzip sqlite.zip -d sqlite
-          cd sqlite
+          cd sqlite/sqlite-amalgamation-3450100
           # Compile SQLite into a static library
           cl /c /Fosqlite3.obj sqlite3.c
           lib /OUT:sqlite3.lib sqlite3.obj
