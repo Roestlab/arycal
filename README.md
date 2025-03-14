@@ -49,6 +49,16 @@ If you're working on an HPC, you can add the `--features mpi` flag to enable MPI
 cargo build --features mpi --release --bin arycal
 ```
 
+### Docker
+
+ARYCAL is also available via [docker images](https://github.com/users/singjc/packages/container/package/arycal):
+
+Pull the latest version:
+
+```bash
+docker pull ghcr.io/singjc/arycal:master
+```
+
 ## Usage
 
 ARYCAL is a command-line tool that uses a json configuration file to specify parameters for the tool. 
