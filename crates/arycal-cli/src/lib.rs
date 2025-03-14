@@ -316,7 +316,7 @@ impl Runner {
             .sum::<usize>()
             < 10
         {
-            log::warn!("The first chromatogram has less than 10 points, skipping precursor: {:?}", precursor.precursor_id);
+            log::trace!("The first chromatogram has less than 10 points, skipping precursor: {:?}", precursor.precursor_id);
             return Ok(HashMap::new());
         }
 
@@ -324,7 +324,7 @@ impl Runner {
         for chrom in chromatograms.iter() {
             for (_, chrom_data) in chrom.chromatograms.iter() {
                 if chrom_data.intensities.iter().any(|&x| x.is_nan()) || chrom_data.retention_times.iter().any(|&x| x.is_nan()) {
-                    log::warn!("NaN values detected in chromatograms, skipping precursor: {:?}", precursor.precursor_id);
+                    log::trace!("NaN values detected in chromatograms, skipping precursor: {:?}", precursor.precursor_id);
                     return Ok(HashMap::new());
                 }
             }
