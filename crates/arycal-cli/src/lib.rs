@@ -9,13 +9,14 @@ use log::info;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::time::Instant;
+use std::sync::{Arc, Mutex};
 
 use arycal_cloudpath::{
     osw::{OswAccess, PrecursorIdData},
     sqmass::{create_common_rt_space, SqMassAccess},
 };
 use arycal_common::{logging::Progress, AlignedTransitionScores, ArycalError, FullTraceAlignmentScores, PeakMapping, PrecursorAlignmentResult};
-use arycal_core::{alignment::{alignment::{apply_post_alignment_to_trgrp, AlignedChromatogram}, dynamic_time_warping::align_chromatograms, fast_fourier_lag::shift_chromatogram}, scoring::{compute_alignment_scores, compute_peak_mapping_scores, compute_peak_mapping_transitions_scores}};
+use arycal_core::{alignment::{self, alignment::{apply_post_alignment_to_trgrp, AlignedChromatogram}, dynamic_time_warping::align_chromatograms, fast_fourier_lag::shift_chromatogram}, scoring::{compute_alignment_scores, compute_peak_mapping_scores, compute_peak_mapping_transitions_scores}};
 use arycal_core::{
     alignment::alignment::map_peaks_across_runs,
     alignment::dynamic_time_warping::{star_align_tics, mst_align_tics, progressive_align_tics},
@@ -31,11 +32,11 @@ pub struct Runner {
     feature_access: Vec<OswAccess>,
     xic_access: Vec<SqMassAccess>,
     start: Instant,
-    progress: Option<Progress>,
+    progress_num: Option<Arc<Mutex<f32>>>, 
 }
 
 impl Runner {
-    pub fn new(parameters: Input) -> anyhow::Result<Self> {
+    pub fn new(parameters: Input, progress_num: Option<Arc<Mutex<f32>>>) -> anyhow::Result<Self> {
         let start = Instant::now();
 
         // TODO: Currently only supports a single OSW file
@@ -65,57 +66,17 @@ impl Runner {
             feature_access: vec![osw_access],
             xic_access: xic_accessors?,
             start,
-            progress: None,
+            progress_num: Some(progress_num.expect("Progress number is not set")),
         })
     }
 
     #[cfg(not(feature = "mpi"))]
-    pub fn run(&self) -> anyhow::Result<()> {
-        // // iterate over precursor map using rayon parallel iterator
-        // let results: Vec<Result<HashMap<i32, HashMap<std::string::String, Vec<PeakMapping>>>, anyhow::Error>> = self.precursor_map
-        // .par_iter()
-        // .map(|precursor| {
-        //     self.process_precursor(&precursor)
-        // })
-        // .collect();
+    pub fn run(&mut self) -> anyhow::Result<()> {
 
         // Print log info of alignment params from self.parameters.alignment
         log::debug!("{}", self.parameters.alignment);
 
         let precursor_map = &self.precursor_map; 
-
-    //     let results: Vec<
-    //     Result<HashMap<i32, Vec<AlignedChromatogram>>, anyhow::Error>,
-    // > = precursor_map
-    //         .par_chunks(self.parameters.alignment.batch_size.unwrap_or_default()) 
-    //         .map(|batch| {
-    //             let mut batch_results = Vec::new();
-    //             let mut progress = None;
-    //             if log::Level::Trace != log::max_level() {
-    //                 progress = Some(Progress::new(
-    //                     batch.len(),
-    //                     format!(
-    //                         "[arycal] Thread {:?} - Aligning precursors",
-    //                         rayon::current_thread_index().unwrap()
-    //                     )
-    //                     .as_str(),
-    //                 ));
-    //             }
-    //             for precursor in batch {
-    //                 let mut result_map = HashMap::new();
-    //                 let result = self.align_precursor(precursor);
-    //                 result_map.insert(precursor.precursor_id, result.unwrap_or(Vec::new()));
-    //                 batch_results.push(Ok(result_map));
-    //                 if log::Level::Trace!=log::max_level() {
-    //                     progress.as_ref().expect("The Progess tqdm logger is not enabled").inc();
-    //                 }
-    //             }
-    //             Ok(batch_results)
-    //         })
-    //         .collect::<Result<Vec<_>, anyhow::Error>>()?
-    //         .into_iter()
-    //         .flatten()
-    //         .collect();
 
         let results: Vec<
             Result<HashMap<i32, PrecursorAlignmentResult>, ArycalError>,
@@ -139,6 +100,11 @@ impl Runner {
                     batch_results.push(result);
                     if !self.parameters.disable_progress_bar {
                         progress.as_ref().expect("The Progess tqdm logger is not enabled").inc();
+                    }
+                    // Update the shared progress if progress_num is Some
+                    if let Some(progress_num) = &self.progress_num {
+                        let mut progress_num = progress_num.lock().unwrap();
+                        *progress_num += 1.0 / precursor_map.len() as f32;
                     }
                 }
                 Ok(batch_results)
@@ -518,11 +484,6 @@ impl Runner {
             detecting_peak_mappings: all_peak_mappings,
             identifying_peak_mapping_scores,
         });
-
-        // Check if progress is available to update
-        if let Some(progress) = &self.progress {
-            progress.inc();
-        }
 
         Ok(result)
     }

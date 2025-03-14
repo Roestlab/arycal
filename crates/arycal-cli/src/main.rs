@@ -52,7 +52,7 @@ fn main() -> Result<()> {
     let input = Input::from_arguments(&matches)?;
 
     // Initialize the runner
-    let runner = Runner::new(input)?;
+    let mut runner = Runner::new(input, None)?;
 
     // Run the main logic
     runner.run()?;

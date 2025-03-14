@@ -18,6 +18,7 @@ pub struct ArycalApp {
     show_log: bool,
     log_messages: Arc<Mutex<Vec<String>>>,
     sidebar_width: f32,
+    alignment_progress: Arc<Mutex<f32>>,
 }
 
 impl ArycalApp {
@@ -30,6 +31,7 @@ impl ArycalApp {
             show_log: true,
             log_messages: Arc::new(Mutex::new(Vec::new())),
             sidebar_width: 250.0,
+            alignment_progress: Arc::new(Mutex::new(0.0)),
         }
     }
 
@@ -423,7 +425,7 @@ impl ArycalApp {
                     });
 
                     // Show progress bar
-                    ui.add(egui::ProgressBar::new(0.5).animate(true));
+                    ui.add(egui::ProgressBar::new(*self.alignment_progress.lock().unwrap()).animate(true));
                 });
         }
     }
@@ -445,52 +447,18 @@ use std::error::Error;
 impl ArycalApp {
     fn run_alignment(&mut self, ctx: &Context) -> Result<(), Box<dyn Error>> {
         let log_messages = Arc::clone(&self.log_messages);
-        let config = Arc::new(self.config.clone()); // ✅ Clone `config` into an `Arc`
-
-        // // Wrap `ctx` in an `Arc`
-        // let ctx = Arc::new(ctx.clone());
-
-        // // Create pipes for capturing stdout and stderr
-        // let (reader, writer) = pipe()?;
-        // let reader_stderr = reader.try_clone()?; // Clone reader for stderr capture
-
-        // // Set up env_logger to redirect logs to our pipe
-        // let mut builder = Builder::new();
-        // builder.target(Target::Pipe(Box::new(writer.try_clone()?))); // Redirect logs to the pipe
-        // builder.init();
-
-        // // Save the original stdout and stderr
-        // let original_stdout = io::stdout();
-        // let original_stderr = io::stderr();
-
-        // // Replace stdout and stderr with our pipe
-        // unsafe {
-        //     libc::dup2(writer.as_raw_fd(), original_stdout.as_raw_fd());
-        //     libc::dup2(writer.as_raw_fd(), original_stderr.as_raw_fd());
-        // }
+        let config = Arc::new(self.config.clone()); 
 
         log::info!("Starting alignment...");
 
-        // // Spawn a thread to read from the pipe and update UI
-        // let log_messages_clone = Arc::clone(&log_messages);
-        // let ctx_clone = Arc::clone(&ctx);
-        // thread::spawn(move || {
-        //     let reader_send = BufReader::new(reader);
-        //     for line in reader_send.lines() {
-        //         log::info!("LINE: {}", line.as_ref().unwrap());
-        //         if let Ok(line) = line {
-        //             let mut log = log_messages_clone.lock().unwrap();
-        //             log.push(line);
-        //         }
-        //         ctx_clone.request_repaint(); // Force UI update
-        //     }
-        // });
-
         // Run the alignment in another thread
         let log_messages_clone = Arc::clone(&log_messages);
-        let config_clone = Arc::clone(&config); // ✅ Clone `config` so it can be moved into the thread
+        let config_clone = Arc::clone(&config); 
+        // Reset progress numer to 0
+        *self.alignment_progress.lock().unwrap() = 0.0;
+        let progress_num = Arc::clone(&self.alignment_progress); 
         thread::spawn(move || {
-            let runner = Runner::new((*config_clone).clone()).unwrap();
+            let mut runner = Runner::new((*config_clone).clone(), Some(progress_num)).unwrap();
             match runner.run() {
                 Ok(_) => {
                     log_messages_clone
@@ -506,11 +474,6 @@ impl ArycalApp {
                 }
             }
 
-            // // Restore original stdout and stderr
-            // unsafe {
-            //     libc::dup2(original_stdout.as_raw_fd(), io::stdout().as_raw_fd());
-            //     libc::dup2(original_stderr.as_raw_fd(), io::stderr().as_raw_fd());
-            // }
         });
 
         Ok(())
