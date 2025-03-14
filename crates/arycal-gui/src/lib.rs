@@ -430,16 +430,16 @@ impl ArycalApp {
 }
 
 use egui::Context;
-use std::sync::mpsc::{self, Receiver, Sender};
+// use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
 use arycal_cli::Runner;
 
-use os_pipe::{PipeReader, PipeWriter, pipe};
-use std::io;
-use std::io::{BufRead, BufReader};
-use std::os::unix::io::{AsRawFd, FromRawFd};
-use std::process::{Command, Stdio};
+// use os_pipe::{PipeReader, PipeWriter, pipe};
+// use std::io;
+// use std::io::{BufRead, BufReader};
+// use std::os::unix::io::{AsRawFd, FromRawFd};
+// use std::process::{Command, Stdio};
 use std::error::Error;
 
 impl ArycalApp {
