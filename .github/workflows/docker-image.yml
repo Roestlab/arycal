@@ -27,17 +27,17 @@ jobs:
     
     - name: Build arycal
       uses: actions-rs/cargo@v1
-        with:
-          use-cross: true
-          command: build
-          args: --release --target x86_64-unknown-linux-gnu --bin arycal
+      with:
+        use-cross: true
+        command: build
+        args: --release --target x86_64-unknown-linux-gnu --bin arycal
 
     - name: Build arycal-gui
       uses: actions-rs/cargo@v1
-        with:
-          use-cross: true
-          command: build
-          args: --release --target x86_64-unknown-linux-gnu --bin arycal-gui
+      with:
+        use-cross: true
+        command: build
+        args: --release --target x86_64-unknown-linux-gnu --bin arycal-gui
           
     - name: Set up QEMU
       uses: docker/setup-qemu-action@v2
