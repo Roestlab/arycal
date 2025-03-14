@@ -1,28 +1,14 @@
-FROM rust:latest AS builder
+FROM debian:bullseye-slim
 
-# Set working directory
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends procps ca-certificates && \
+    update-ca-certificates && \
+    rm -rf /var/lib/apt /var/lib/dpkg /var/lib/cache /var/lib/log
+
 WORKDIR /app
 
-# Clone the repository
-RUN git clone https://github.com/singjc/arycal.git .
+COPY target/x86_64-unknown-linux-gnu/release/arycal /app/arycal
 
-# Build the binaries
-RUN cargo build --release --bin arycal
-RUN cargo build --release --bin arycal-gui
+COPY target/x86_64-unknown-linux-gnu/release/arycal-gui /app/arycal-gui
 
-# Create a minimal runtime image
-FROM debian:bookworm-slim
-
-# Install necessary dependencies for GUI (if needed)
-RUN apt-get update && apt-get install -y \
-    libx11-dev libgl1-mesa-glx libgtk-3-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy binaries from the builder stage
-COPY --from=builder /app/target/release/arycal /usr/local/bin/arycal
-COPY --from=builder /app/target/release/arycal-gui /usr/local/bin/arycal-gui
-
-# Allow the user to specify which binary to run
-ENTRYPOINT []
-CMD ["/usr/local/bin/arycal"]
-
+ENV PATH="/app:$PATH"
