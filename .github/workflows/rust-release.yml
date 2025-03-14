@@ -43,8 +43,18 @@ jobs:
             target: x86_64-apple-darwin
             os: macos-latest
 
+          - name: arycal-gui-x86_64-apple-darwin
+            bin: arycal-gui
+            target: x86_64-apple-darwin
+            os: macos-latest
+
           - name: arycal-x86_64-pc-windows-msvc
-            bin: arycal.exe
+            bin: arycal
+            target: x86_64-pc-windows-msvc
+            os: windows-latest
+
+          - name: arycal-gui-x86_64-pc-windows-msvc
+            bin: arycal-gui
             target: x86_64-pc-windows-msvc
             os: windows-latest
 
