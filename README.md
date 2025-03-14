@@ -22,9 +22,13 @@
   - Individual peak mapping across runs is scored using the same metrics.
   - A set of decoy aligned peaks is generated (random shuffling of query peak or random region selection) to estimate the quality of peak alignment.
   - If using the IPF OpenSWATH workflow, alignment (based on detecting transitions) and scoring of individual transitions peak mappings is also supported.
-- Supports output from OpenSWATH (OSW feature files and sqMass XIC files)
+- Currently only supports output from OpenSWATH (OSW feature files and sqMass XIC files)
 
 ## Installation
+
+### Precompiled Binaries
+
+Precompiled binaries are available for Linux, MacOS, and Windows. You can download the latest release under the assets from the [releases page](https://github.com/singjc/arycal/releases)
 
 ### Build from Source
 
@@ -111,7 +115,9 @@ Remove the comments before running the configuration file.
     "decoy_peak_mapping_method": "shuffle",
     # Size of the window to use for the decoy peak mapping. Only used when the method is random_region.
     "decoy_window_size": 30
-  }
+  },
+  # Disable the tqdm progress bar
+  "disable_progress_bar": false,
 }
 ```
 
