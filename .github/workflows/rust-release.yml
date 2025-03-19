@@ -86,7 +86,9 @@ jobs:
         uses: taiki-e/upload-rust-binary-action@v1
         with:
           bin: ${{ matrix.bin }}
+          archive: ${{ matrix.bin }}-{{ $tag }}-${{ matrix.name }}
           target: ${{ matrix.target }}
+          include: LICENSE,README.md
           tar: unix
           zip: windows
           token: ${{ secrets.GITHUB_TOKEN }}
