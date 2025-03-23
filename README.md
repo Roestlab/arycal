@@ -101,7 +101,9 @@ Remove the comments before running the configuration file.
     # Whether to include decoy precursor XICs to align as well
     "decoy": false,
     # Whether to aligned and score identifying transitions
-    "include_identifying_transitions": false
+    "include_identifying_transitions": false,
+    # A TSV file (with header) to filter for precursor ids to align
+    "precursor_ids": null,
   },
   "alignment": {
     # The batch size for aligning N precursors for a given thread
@@ -124,7 +126,11 @@ Remove the comments before running the configuration file.
     # The method for generating decoy aligned peaks. (Currently supports shuffle, random_region)
     "decoy_peak_mapping_method": "shuffle",
     # Size of the window to use for the decoy peak mapping. Only used when the method is random_region.
-    "decoy_window_size": 30
+    "decoy_window_size": 30,
+    # Compute the scores for the alignment
+    "compute_scores": true,
+    # Optionally write out the scores to a separate file (sqlite), otherwise the scores are written to the feature input file
+    "scores_output_file": null
   },
   # Disable the tqdm progress bar
   "disable_progress_bar": false,
