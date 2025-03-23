@@ -12,6 +12,7 @@ use std::time::Instant;
 use std::sync::{Arc, Mutex};
 
 use arycal_cloudpath::{
+    tsv::load_precursor_ids_from_tsv,
     osw::{OswAccess, PrecursorIdData},
     sqmass::{create_common_rt_space, SqMassAccess},
 };
@@ -43,7 +44,13 @@ impl Runner {
         let start_io = Instant::now();
         let osw_access = OswAccess::new(&parameters.features.file_paths[0].to_str().unwrap())?;
 
-        let precursor_map: Vec<PrecursorIdData> = osw_access.fetch_transition_ids(parameters.filters.decoy, parameters.filters.include_identifying_transitions.unwrap_or_default())?;
+        // Check if precursor_ids tsv file is provided
+        let mut precursor_ids: Option<Vec<u32>> = None;
+        if let Some(precursor_ids_file) = &parameters.filters.precursor_ids {
+            precursor_ids = Some(load_precursor_ids_from_tsv(precursor_ids_file)?);
+        }
+
+        let precursor_map: Vec<PrecursorIdData> = osw_access.fetch_transition_ids(parameters.filters.decoy, parameters.filters.include_identifying_transitions.unwrap_or_default(), precursor_ids)?;
         let run_time = (Instant::now() - start_io).as_millis();
 
         info!(
@@ -90,11 +97,12 @@ impl Runner {
                         batch.len(),
                         format!(
                             "[arycal] Thread {:?} - Aligning precursors",
-                            rayon::current_thread_index().unwrap()
+                            rayon::current_thread_index().unwrap_or(0)
                         )
                         .as_str(),
                     ));
                 }
+                let start_time = Instant::now();
                 for precursor in batch {
                     let result = self.process_precursor(precursor).map_err(|e| ArycalError::Custom(e.to_string()));
                     batch_results.push(result);
@@ -106,6 +114,10 @@ impl Runner {
                         let mut progress_num = progress_num.lock().unwrap();
                         *progress_num += 1.0 / precursor_map.len() as f32;
                     }
+                }
+                let end_time = Instant::now();
+                if self.parameters.disable_progress_bar {
+                    log::info!("Batch of {} precursors aligned in {:?}", batch.len(), end_time.duration_since(start_time));
                 }
                 Ok(batch_results)
             })
@@ -129,17 +141,27 @@ impl Runner {
         //     })
         //     .collect();
 
+        // Write out to separate file if scores_output_file is provided
+        let feature_access = if let Some(scores_output_file) = &self.parameters.alignment.scores_output_file {
+            let scores_output_file = scores_output_file.clone();
+            let osw_access = OswAccess::new(&scores_output_file)?;
+            vec![osw_access]
+        } else {
+            self.feature_access.clone()
+        };
+        
+
         if self.parameters.alignment.compute_scores.unwrap_or_default() {
             // Write FEATURE_ALIGNMENT results to the database
-            self.write_aligned_score_results_to_db(&self.feature_access, &results)?;
+            self.write_aligned_score_results_to_db(&feature_access, &results)?;
         }
         
         // Write FEATURE_MS2_ALIGNMENT results to the database
-        self.write_ms2_alignment_results_to_db(&self.feature_access, &results)?;
+        self.write_ms2_alignment_results_to_db(&feature_access, &results)?;
 
         // Write FEATURE_TRANSITION_ALIGNMENT results to the database
         if self.parameters.filters.include_identifying_transitions.unwrap_or_default() && self.parameters.alignment.compute_scores.unwrap_or_default() {
-            self.write_transition_alignment_results_to_db(&self.feature_access, &results)?;   
+            self.write_transition_alignment_results_to_db(&feature_access, &results)?;   
         }
 
         let run_time = (Instant::now() - self.start).as_secs();
@@ -188,12 +210,17 @@ impl Runner {
                         .as_str(),
                     ));
                 }
+                let start_time = Instant::now();
                 for precursor in batch {
                     let result = self.process_precursor(precursor).map_err(|e| ArycalError::Custom(e.to_string()));
                     batch_results.push(result);
                     if !self.parameters.disable_progress_bar {
                         progress.as_ref().expect("The Progess tqdm logger is not enabled").inc();
                     }
+                }
+                let end_time = Instant::now();
+                if self.parameters.disable_progress_bar {
+                    log::info!("Node {} - Rank {} - Thread {:?} - Batch of {} precursors aligned in {:?}", hostname, rank, rayon::current_thread_index().unwrap_or(0), batch.len(), end_time.duration_since(start_time));
                 }
                 Ok(batch_results)
             })
@@ -227,13 +254,24 @@ impl Runner {
 
         // Only root process writes results to the database
         if rank == 0 {
+
+            // Write out to separate file if scores_output_file is provided
+            let feature_access = if let Some(scores_output_file) = &self.parameters.alignment.scores_output_file {
+                let scores_output_file = scores_output_file.clone();
+                let osw_access = OswAccess::new(&scores_output_file)?;
+                vec![osw_access]
+            } else {
+                self.feature_access.clone()
+            };
+
             if self.parameters.alignment.compute_scores.unwrap_or_default() {
                 // Write FEATURE_ALIGNMENT results to the database
-                self.write_aligned_score_results_to_db(&self.feature_access, &gathered_results)?;
+                self.write_aligned_score_results_to_db(&feature_access, &gathered_results)?;
             }
-            self.write_ms2_alignment_results_to_db(&self.feature_access, &gathered_results)?;
+            self.write_ms2_alignment_results_to_db(&feature_access, &gathered_results)?;
+
             if self.parameters.filters.include_identifying_transitions.unwrap_or_default() && self.parameters.alignment.compute_scores.unwrap_or_default() {
-                self.write_transition_alignment_results_to_db(&self.feature_access, &gathered_results)?;   
+                self.write_transition_alignment_results_to_db(&feature_access, &gathered_results)?;   
             }
 
             let run_time = (Instant::now() - self.start).as_secs();
@@ -756,7 +794,7 @@ impl Runner {
         
         let mut progress: Option<Progress> = None;
         if !self.parameters.disable_progress_bar {
-            let progress: Option<Progress> = Some(Progress::new(
+            progress = Some(Progress::new(
                 results.len(),
                 "[arycal] Writing FEATURE_TRANSITION_ALIGNMENT table to the database",
             ));

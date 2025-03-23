@@ -276,6 +276,7 @@ impl PrecursorIdData {
 }
 
 /// Define the OSW access structure
+#[derive(Clone)]
 pub struct OswAccess {
     pool: Pool<SqliteConnectionManager>,
 }
@@ -295,6 +296,7 @@ impl OswAccess {
     /// Parameters
     /// - `filter_decoys`: A boolean flag to filter out decoy precursors.
     /// - `include_identifying_transitions`: A boolean flag to include identifying transitions.
+    /// - `precursor_ids`: An optional vector of precursor IDs to filter by.
     ///
     /// Returns
     /// A vector of `PrecursorIdData` instances containing the precursor and transition IDs.
@@ -302,6 +304,7 @@ impl OswAccess {
         &self,
         filter_decoys: bool,
         include_identifying_transitions: bool,
+        precursor_ids: Option<Vec<u32>>,
     ) -> Result<Vec<PrecursorIdData>, OpenSwathSqliteError> {
         // Get a connection from the pool
         let conn = self
@@ -331,6 +334,19 @@ impl OswAccess {
             format!("{} AND PRECURSOR.DECOY=0", base_query)
         } else {
             base_query.to_string()
+        };
+
+        // Append condition for filtering by precursor IDs if applicable
+        let query = if let Some(ids) = precursor_ids {
+            log::trace!("Filtering for {} precursor IDs", ids.len());
+            let id_list = ids
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<String>>()
+                .join(",");
+            format!("{} AND PRECURSOR.ID IN ({})", query, id_list)
+        } else {
+            query
         };
 
         // Execute the query and map results to tuples of precursor and transition data

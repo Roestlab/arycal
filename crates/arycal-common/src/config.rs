@@ -108,6 +108,8 @@ impl FeaturesConfig {
 pub struct FiltersConfig {
     pub decoy: bool,
     pub include_identifying_transitions: Option<bool>,
+    /// TSV file containing the list of precursors to filter for.
+    pub precursor_ids: Option<String>
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -142,6 +144,8 @@ pub struct AlignmentConfig {
     pub decoy_window_size: Option<usize>,
     /// Optionally compute alignment scores for the full trace alignment and peak mapping. Default is true.
     pub compute_scores: Option<bool>,
+    /// Optionally output the scores to a separate OSW file. Otherwise, the scores are added to the input OSW file.
+    pub scores_output_file: Option<String>,
 }
 
 impl Default for AlignmentConfig {
@@ -160,6 +164,7 @@ impl Default for AlignmentConfig {
             decoy_peak_mapping_method: "shuffle".to_string(),
             decoy_window_size: Some(30),
             compute_scores: Some(true),
+            scores_output_file: None,
         }
     }
 }
@@ -180,6 +185,7 @@ impl std::fmt::Display for AlignmentConfig {
             decoy_peak_mapping_method: {}\n\
             decoy_window_size: {:?}\n\
             compute_scores: {:?}\n\
+            scores_output_file: {:?}\n\
             -------------------------",
             self.batch_size.unwrap_or_default(),
             self.method,
@@ -191,7 +197,8 @@ impl std::fmt::Display for AlignmentConfig {
             self.rt_mapping_tolerance.unwrap_or_default(),
             self.decoy_peak_mapping_method,
             self.decoy_window_size.unwrap_or_default(),
-            self.compute_scores.unwrap_or_default()
+            self.compute_scores.unwrap_or_default(),
+            self.scores_output_file
         )
     }
 }
