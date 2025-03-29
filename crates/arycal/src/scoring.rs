@@ -1,6 +1,6 @@
 use rayon::prelude::*;
 use ndarray::{Array1, Array2};
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 use rand::{seq::SliceRandom, Rng};
 
 use arycal_cloudpath::sqmass::{Chromatogram, TransitionGroup};
@@ -66,68 +66,105 @@ pub fn compute_peak_mapping_scores(
     aligned_chromatograms: Vec<AlignedChromatogram>,
     peak_mappings: HashMap<String, Vec<PeakMapping>>,
 ) -> HashMap<String, Vec<PeakMapping>> {
-    let mut scored_peak_mappings = peak_mappings.clone();
+    // Create Arc for shared read access to the input data
+    let aligned_chroms = Arc::new(aligned_chromatograms);
+    let peak_maps = Arc::new(peak_mappings);
 
-    // Iterate over each aligned chromatogram
-    for aligned_chrom in &aligned_chromatograms {
-        let aligned_filename = aligned_chrom.chromatogram.metadata.get("basename")
-            .unwrap_or(&aligned_chrom.chromatogram.native_id)
-            .to_string();
+    // Process each chromatogram in parallel and collect updates
+    let updates: Vec<(String, Vec<PeakMapping>)> = aligned_chroms.par_iter()
+        .filter_map(|aligned_chrom| {
+            let aligned_filename = aligned_chrom.chromatogram.metadata.get("basename")
+                .unwrap_or(&aligned_chrom.chromatogram.native_id)
+                .to_string();
 
-        // For current aligned_chrom, get the corresponding reference chromatogram
-        let reference_filename = aligned_chrom.rt_mapping[0].get("run1").unwrap();
-        let reference_chrom = aligned_chromatograms.iter()
-            .find(|chrom| chrom.chromatogram.metadata.get("basename").unwrap() == reference_filename)
-            .unwrap();
+            // Get reference chromatogram
+            let reference_filename = aligned_chrom.rt_mapping[0].get("run1").unwrap();
+            let reference_chrom = aligned_chroms.iter()
+                .find(|chrom| chrom.chromatogram.metadata.get("basename").unwrap() == reference_filename)?;
 
-        // Get the peak mappings for this aligned chromatogram
-        if let Some(peak_mappings_for_run) = scored_peak_mappings.get_mut(&aligned_filename) {
-            // Iterate over each peak mapping
+            // Get a clone of the peak mappings for this run
+            let mut peak_mappings_for_run = peak_maps.get(&aligned_filename)?.clone();
+
+            // Process each peak mapping
             for peak_mapping in peak_mappings_for_run.iter_mut() {
-                log::trace!("Scoring peak mapping for peak_id: {} for run: {}", peak_mapping.alignment_id, aligned_filename);
+                log::trace!("Scoring peak mapping for peak_id: {} for run: {}", 
+                    peak_mapping.alignment_id, aligned_filename);
 
-                let reference_intensities = get_peak_intensities(&reference_chrom.chromatogram, peak_mapping.reference_left_width, peak_mapping.reference_right_width);
-                let aligned_intensities = get_peak_intensities(&aligned_chrom.chromatogram, peak_mapping.aligned_left_width, peak_mapping.aligned_right_width);
+                // Get intensities
+                let reference_intensities = get_peak_intensities(
+                    &reference_chrom.chromatogram, 
+                    peak_mapping.reference_left_width, 
+                    peak_mapping.reference_right_width
+                );
+                let aligned_intensities = get_peak_intensities(
+                    &aligned_chrom.chromatogram, 
+                    peak_mapping.aligned_left_width, 
+                    peak_mapping.aligned_right_width
+                );
 
-                // Compute cross-correlation to reference
-                let xcorr_coelution_to_ref = calc_xcorr_coelution_score(&Array1::from(reference_intensities.clone()), &Array1::from(aligned_intensities.clone()));
-                peak_mapping.xcorr_coelution_to_ref = Some(xcorr_coelution_to_ref);
+                // Compute all scores
+                peak_mapping.xcorr_coelution_to_ref = Some(calc_xcorr_coelution_score(
+                    &Array1::from(reference_intensities.clone()), 
+                    &Array1::from(aligned_intensities.clone())
+                ));
+                
+                peak_mapping.xcorr_shape_to_ref = Some(calc_xcorr_shape_score(
+                    &Array1::from(reference_intensities.clone()), 
+                    &Array1::from(aligned_intensities.clone())
+                ));
+                
+                peak_mapping.mi_to_ref = Some(calc_mi_score(
+                    &Array1::from(reference_intensities.clone()), 
+                    &Array1::from(aligned_intensities.clone())
+                ));
 
-                let xcorr_shape_to_ref = calc_xcorr_shape_score(&Array1::from(reference_intensities.clone()), &Array1::from(aligned_intensities.clone()));
-                peak_mapping.xcorr_shape_to_ref = Some(xcorr_shape_to_ref);
+                // Collect peak mappings for this alignment ID across all runs
+                let peak_mappings_for_alignment_id: Vec<PeakMapping> = peak_maps.iter()
+                    .filter(|(_, mappings)| mappings.iter().any(|m| m.alignment_id == peak_mapping.alignment_id))
+                    .flat_map(|(_, mappings)| mappings.clone())
+                    .collect();
 
-                let mi_to_ref = calc_mi_score(&Array1::from(reference_intensities.clone()), &Array1::from(aligned_intensities.clone()));
-                peak_mapping.mi_to_ref = Some(mi_to_ref);
+                let all_intensities = get_array_peak_intensities(
+                    aligned_chroms.iter().cloned().collect(), 
+                    peak_mappings_for_alignment_id
+                );
+                
+                peak_mapping.xcorr_coelution_to_all = Some(calc_xcorr_to_many_score(
+                    &Array1::from(aligned_intensities.clone()), 
+                    &all_intensities
+                ));
+                
+                peak_mapping.xcorr_shape_to_all = Some(calc_xcorr_shape_to_many_score(
+                    &Array1::from(aligned_intensities.clone()), 
+                    &all_intensities
+                ));
+                
+                peak_mapping.mi_to_all = Some(calc_mi_to_many_score(
+                    &Array1::from(aligned_intensities.clone()), 
+                    &all_intensities
+                ));
 
-                // Subset peak_mappings for peaks with the same alignment_id across runs
-                let peak_mappings_for_alignment_id: Vec<PeakMapping> = peak_mappings.clone().into_iter()
-                .filter(|(_, mappings)| mappings.iter().any(|m| m.alignment_id == peak_mapping.alignment_id))
-                .flat_map(|(_, mappings)| mappings)
-                .collect();
-
-                let xcorr_coelution_to_all = calc_xcorr_to_many_score(&Array1::from(aligned_intensities.clone()), &get_array_peak_intensities(aligned_chromatograms.clone(), peak_mappings_for_alignment_id.clone()));
-                peak_mapping.xcorr_coelution_to_all = Some(xcorr_coelution_to_all);
-
-                let xcorr_shape_to_all = calc_xcorr_shape_to_many_score(&Array1::from(aligned_intensities.clone()), &get_array_peak_intensities(aligned_chromatograms.clone(), peak_mappings_for_alignment_id.clone()));
-                peak_mapping.xcorr_shape_to_all = Some(xcorr_shape_to_all);
-
-                let mi_to_all = calc_mi_to_many_score(&Array1::from(aligned_intensities.clone()), &get_array_peak_intensities(aligned_chromatograms.clone(), peak_mappings_for_alignment_id.clone()));
-                peak_mapping.mi_to_all = Some(mi_to_all);
-
-                // Compute retention time deviation
-                let rt_deviation = (peak_mapping.aligned_rt - peak_mapping.reference_rt).abs();
-                peak_mapping.rt_deviation = Some(rt_deviation);
-
-                // Compute peak intensity ratio
-                let intensity_ratio = compute_peak_intensity_ratio(
-                    &Array1::from(reference_intensities.clone()), &Array1::from(aligned_intensities.clone()));
-
-                peak_mapping.intensity_ratio = Some(intensity_ratio);
+                // Compute remaining scores
+                peak_mapping.rt_deviation = Some((peak_mapping.aligned_rt - peak_mapping.reference_rt).abs());
+                peak_mapping.intensity_ratio = Some(compute_peak_intensity_ratio(
+                    &Array1::from(reference_intensities), 
+                    &Array1::from(aligned_intensities)
+                ));
             }
-        }
+
+            Some((aligned_filename, peak_mappings_for_run))
+        })
+        .collect();
+
+    // Apply all updates to the original peak mappings
+    // This is done serially to avoid using Mutex guard locking.
+    // TODO: Look into DashMap for concurrent hashmap updates
+    let mut result = (*peak_maps).clone();
+    for (filename, updated_mappings) in updates {
+        result.insert(filename, updated_mappings);
     }
 
-    scored_peak_mappings
+    result
 }
 
 pub fn compute_peak_mapping_transitions_scores(
