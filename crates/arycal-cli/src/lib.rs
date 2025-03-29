@@ -140,7 +140,8 @@ impl Runner {
         let global_start = Instant::now();
         let batch_start = Arc::new(std::sync::Mutex::new(Instant::now())); // For batch timing
 
-        log::info!("Will process in batches of {}", batch_size);
+        log::info!("Will align {} precursors in parallel at a time", batch_size);
+        log::info!("Starting alignment for {} precursors", total_count);
 
         let results = pool.install(|| {
             precursor_map
