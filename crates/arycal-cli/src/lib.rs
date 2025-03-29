@@ -168,10 +168,10 @@ impl Runner {
                         // Last item in batch - log batch duration
                         let batch_time = batch_start.lock().unwrap().elapsed();
                         log::info!(
-                            "Batch of {} precursors aligned in {:?} ({:.2}/sec) | Total: {}/{}",
+                            "Batch of {} precursors aligned and scored in {:?} ({:.2}/min) | Total: {}/{}",
                             count.min(500), // Handle final partial batch
                             batch_time,
-                            batch_size as f64 / batch_time.as_secs_f64(),
+                            500 as f64 / (batch_time.as_secs_f64() / 60.0),
                             count,
                             total_count
                         );
