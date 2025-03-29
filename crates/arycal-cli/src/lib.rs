@@ -7,9 +7,11 @@ use mpi::traits::*;
 use anyhow::Result;
 use log::info;
 use rayon::prelude::*;
+use rayon::ThreadPoolBuilder;
 use std::collections::HashMap;
 use std::time::Instant;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use arycal_cloudpath::{
     tsv::load_precursor_ids_from_tsv,
@@ -85,46 +87,108 @@ impl Runner {
 
         let precursor_map = &self.precursor_map; 
 
-        let results: Vec<
-            Result<HashMap<i32, PrecursorAlignmentResult>, ArycalError>,
-        > = precursor_map
-            .par_chunks(self.parameters.alignment.batch_size.unwrap_or_default()) 
-            .map(|batch| {
-                let mut batch_results = Vec::new();
-                let mut progress = None;
-                if !self.parameters.disable_progress_bar {
-                    progress = Some(Progress::new(
-                        batch.len(),
-                        format!(
-                            "[arycal] Thread {:?} - Aligning precursors",
-                            rayon::current_thread_index().unwrap_or(0)
-                        )
-                        .as_str(),
-                    ));
-                }
-                let start_time = Instant::now();
-                for precursor in batch {
-                    let result = self.process_precursor(precursor).map_err(|e| ArycalError::Custom(e.to_string()));
-                    batch_results.push(result);
-                    if !self.parameters.disable_progress_bar {
-                        progress.as_ref().expect("The Progess tqdm logger is not enabled").inc();
-                    }
-                    // Update the shared progress if progress_num is Some
+        // let results: Vec<
+        //     Result<HashMap<i32, PrecursorAlignmentResult>, ArycalError>,
+        // > = precursor_map
+        //     .par_chunks(self.parameters.alignment.batch_size.unwrap_or_default()) 
+        //     .map(|batch| {
+        //         let mut batch_results = Vec::new();
+        //         let mut progress = None;
+        //         if !self.parameters.disable_progress_bar {
+        //             progress = Some(Progress::new(
+        //                 batch.len(),
+        //                 format!(
+        //                     "[arycal] Thread {:?} - Aligning precursors",
+        //                     rayon::current_thread_index().unwrap_or(0)
+        //                 )
+        //                 .as_str(),
+        //             ));
+        //         }
+        //         let start_time = Instant::now();
+        //         for precursor in batch {
+        //             let result = self.process_precursor(precursor).map_err(|e| ArycalError::Custom(e.to_string()));
+        //             batch_results.push(result);
+        //             if !self.parameters.disable_progress_bar {
+        //                 progress.as_ref().expect("The Progess tqdm logger is not enabled").inc();
+        //             }
+        //             // Update the shared progress if progress_num is Some
+        //             if let Some(progress_num) = &self.progress_num {
+        //                 let mut progress_num = progress_num.lock().unwrap();
+        //                 *progress_num += 1.0 / precursor_map.len() as f32;
+        //             }
+        //         }
+        //         let end_time = Instant::now();
+        //         if self.parameters.disable_progress_bar {
+        //             log::info!("Batch of {} precursors aligned in {:?}", batch.len(), end_time.duration_since(start_time));
+        //         }
+        //         Ok(batch_results)
+        //     })
+        //     .collect::<Result<Vec<_>, ArycalError>>()? 
+        //     .into_iter()
+        //     .flatten() 
+        //     .collect();
+
+        // Create a custom thread pool with limited parallelism
+        let pool = ThreadPoolBuilder::new()
+        .num_threads(self.parameters.alignment.batch_size.unwrap_or(rayon::max_num_threads() - 4)) 
+        .build()
+        .unwrap();
+
+        let processed_count = Arc::new(AtomicUsize::new(0));
+        let batch_size = self.parameters.alignment.batch_size.unwrap_or(rayon::max_num_threads() - 4);
+        let total_count = precursor_map.len();
+        let global_start = Instant::now();
+        let batch_start = Arc::new(std::sync::Mutex::new(Instant::now())); // For batch timing
+
+        log::info!("Will process in batches of {}", batch_size);
+
+        let results = pool.install(|| {
+            precursor_map
+                .par_iter()
+                .map(|precursor| {
+                    let result = self.process_precursor(precursor)
+                        .map_err(|e| ArycalError::Custom(e.to_string()));
+
+                    // Update progress
                     if let Some(progress_num) = &self.progress_num {
                         let mut progress_num = progress_num.lock().unwrap();
-                        *progress_num += 1.0 / precursor_map.len() as f32;
+                        *progress_num += 1.0 / total_count as f32;
                     }
-                }
-                let end_time = Instant::now();
-                if self.parameters.disable_progress_bar {
-                    log::info!("Batch of {} precursors aligned in {:?}", batch.len(), end_time.duration_since(start_time));
-                }
-                Ok(batch_results)
-            })
-            .collect::<Result<Vec<_>, ArycalError>>()? 
-            .into_iter()
-            .flatten() 
-            .collect();
+
+                    // Get and increment count
+                    let count = processed_count.fetch_add(1, Ordering::Relaxed) + 1;
+
+                    // Log timing for every 500 precursors
+                    if count % 500 == 1 {
+                        // First item in new batch - reset timer
+                        *batch_start.lock().unwrap() = Instant::now();
+                    }
+                    else if count % 500 == 0 || count == total_count {
+                        // Last item in batch - log batch duration
+                        let batch_time = batch_start.lock().unwrap().elapsed();
+                        log::info!(
+                            "Batch of {} precursors aligned in {:?} ({:.2}/sec) | Total: {}/{}",
+                            count.min(500), // Handle final partial batch
+                            batch_time,
+                            batch_size as f64 / batch_time.as_secs_f64(),
+                            count,
+                            total_count
+                        );
+                    }
+
+                    result
+                })
+                .collect()
+        });
+
+        // Final stats
+        let total_elapsed = global_start.elapsed();
+        log::info!(
+            "Aligned and scored {} precursors in {:?} ({:.2}/sec)",
+            total_count,
+            total_elapsed,
+            total_count as f64 / total_elapsed.as_secs_f64()
+        );
 
         // // Filter precursor map for modified sequence = LTPEAIR and charge = 2
         // let filtered_precursors: Vec<PrecursorIdData> = self.precursor_map
@@ -292,9 +356,9 @@ impl Runner {
         );
         let native_ids_str: Vec<&str> = native_ids.iter().map(|s| s.as_str()).collect();
 
-        log::debug!("modified_sequence: {:?}, precursor_charge: {:?}, detecting transitions: {:?}, identifying transitions: {:?}", precursor.modified_sequence, precursor.precursor_charge, precursor.n_transitions(), precursor.n_identifying_transitions());
+        log::trace!("modified_sequence: {:?}, precursor_charge: {:?}, detecting transitions: {:?}, identifying transitions: {:?}", precursor.modified_sequence, precursor.precursor_charge, precursor.n_transitions(), precursor.n_identifying_transitions());
 
-        log::trace!("native_ids: {:?}", native_ids);
+        // log::trace!("native_ids: {:?}", native_ids);
 
         let group_id =
             precursor.modified_sequence.clone() + "_" + &precursor.precursor_charge.to_string();
@@ -417,46 +481,60 @@ impl Runner {
                     .collect(),
             )?;
 
-        let mut mapped_prec_peaks: HashMap<String, Vec<arycal_common::PeakMapping>> = HashMap::new();
-        for (_i, chrom) in aligned_chromatograms.iter().enumerate() {
+        // First collect all the mapping results in parallel
+        let peak_mapping_results: Vec<(String, Vec<arycal_common::PeakMapping>)> = aligned_chromatograms
+        .par_iter()
+        .filter_map(|chrom| {
             let current_run = chrom.chromatogram.metadata.get("basename").unwrap();
-            log::trace!("Mapping peaks from reference run: {} to current run: {}", chrom.rt_mapping[0].get("run1").unwrap(), current_run);
+            log::trace!(
+                "Mapping peaks from reference run: {} to current run: {}",
+                chrom.rt_mapping[0].get("run1").unwrap(),
+                current_run
+            );
 
-            // Filter prec_feat_data for current run and map aligned RTs to feature data
-            let current_run_feat_data: Vec<arycal_cloudpath::osw::FeatureData> = prec_feat_data
+            // Filter prec_feat_data for current run
+            let current_run_feat_data: Vec<_> = prec_feat_data
                 .iter()
                 .filter(|f| &f.basename == current_run)
                 .cloned()
                 .collect();
 
             // Get reference run feature data
-            let ref_run_feat_data: Vec<arycal_cloudpath::osw::FeatureData> = prec_feat_data
+            let ref_run_feat_data: Vec<_> = prec_feat_data
                 .iter()
                 .filter(|f| &f.basename == chrom.rt_mapping[0].get("run1").unwrap())
                 .cloned()
                 .collect();
 
-            // Check if current_run_feat_data and ref_run_feat_data are empty
             if current_run_feat_data.is_empty() || ref_run_feat_data.is_empty() {
-                log::warn!("Current run feature data or reference run feature data is empty, skipping peak mapping for run: {}", current_run);
-                continue;
+                log::trace!(
+                    "Current run feature data or reference run feature data is empty, skipping peak mapping for run: {}",
+                    current_run
+                );
+                return None;
             }
 
-            // map_peaks_across_runs
-            let mapped_peaks =
-                map_peaks_across_runs(chrom, ref_run_feat_data, current_run_feat_data, self.parameters.alignment.rt_mapping_tolerance.unwrap_or_default(), &self.parameters.alignment);
-
-            // Append mapped peaks to the vector, use chrom.chromatogram.metadata.get("basename").unwrap() as the key
-            mapped_prec_peaks.insert(
-                chrom
-                    .chromatogram
-                    .metadata
-                    .get("basename")
-                    .unwrap()
-                    .to_string(),
-                mapped_peaks,
+            let mapped_peaks = map_peaks_across_runs(
+                chrom,
+                ref_run_feat_data,
+                current_run_feat_data,
+                self.parameters.alignment.rt_mapping_tolerance.unwrap_or_default(),
+                &self.parameters.alignment,
             );
+
+            Some((
+                chrom.chromatogram.metadata.get("basename").unwrap().to_string(),
+                mapped_peaks,
+            ))
+        })
+        .collect();
+
+        // Then insert into HashMap serially
+        let mut mapped_prec_peaks: HashMap<String, Vec<arycal_common::PeakMapping>> = HashMap::new();
+        for (key, value) in peak_mapping_results {
+            mapped_prec_peaks.insert(key, value);
         }
+
         log::debug!("Peak mapping took: {:?}", start_time.elapsed());
 
         /* ------------------------------------------------------------------ */
@@ -696,13 +774,14 @@ impl Runner {
                     // Insert in batches for better performance
                     if batch.len() >= batch_size {
                         for osw_access in feature_access {
+                            log::debug!("Inserting batch of {} full trace aligned features and scores", batch.len());
                             osw_access.insert_feature_alignment_batch(&batch)?;
                         }
                         batch.clear();
                     }
                 }
                 Err(err) => {
-                    log::warn!("[arycal] Skipping result due to error: {:?}", err);
+                    log::warn!("[arycal::write_aligned_score_results_to_db] Skipping result due to error: {:?}", err);
                 }
             }
             if !self.parameters.disable_progress_bar {
@@ -753,13 +832,14 @@ impl Runner {
                     // Insert in batches for better performance
                     if batch.len() >= batch_size {
                         for osw_access in feature_access {
+                            log::debug!("Inserting batch of {} ms2 aligned features and scores", batch.len());
                             osw_access.insert_feature_ms2_alignment_batch(&batch)?;
                         }
                         batch.clear();
                     }
                 }
                 Err(err) => {
-                    log::warn!("[arycal] Skipping result due to error: {:?}", err);
+                    log::warn!("[arycal::write_ms2_alignment_results_to_db] Skipping result due to error: {:?}", err);
                 }
             }
             if !self.parameters.disable_progress_bar {
@@ -812,6 +892,7 @@ impl Runner {
                     // Insert in batches for better performance
                     if batch.len() >= batch_size {
                         for osw_access in feature_access {
+                            log::debug!("Inserting batch of {} transition aligned features and scores", batch.len());
                             osw_access.insert_feature_transition_alignment_batch(&batch)?;
                         }
                         batch.clear();
@@ -819,7 +900,7 @@ impl Runner {
                 }
                 Err(err) => {
                     log::warn!(
-                        "[arycal] Skipping transition alignment result due to error: {:?}",
+                        "[arycal::write_transition_alignment_results_to_db] Skipping transition alignment result due to error: {:?}",
                         err
                     );
                 }
