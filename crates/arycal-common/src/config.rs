@@ -151,7 +151,7 @@ pub struct AlignmentConfig {
 impl Default for AlignmentConfig {
     fn default() -> Self {
         AlignmentConfig {
-            batch_size: Some(1000),
+            batch_size: Some(20),
             method: "fft_dtw".to_string(),
             reference_type: "star".to_string(),
             reference_run: None,
