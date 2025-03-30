@@ -2,7 +2,7 @@ use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, Connection, Error as RusqliteError, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 use std::error::Error;
 use std::fmt;
 use std::path::Path;
@@ -284,9 +284,20 @@ pub struct OswAccess {
 impl OswAccess {
     /// Constructor to create a new OswAccess instance with a connection pool
     pub fn new(db_path: &str) -> Result<Self, OpenSwathSqliteError> {
-        let manager = SqliteConnectionManager::file(db_path);
-        let pool =
-            Pool::new(manager).map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+        let manager = SqliteConnectionManager::file(db_path)
+            .with_init(|conn| {
+                // Enable WAL mode for better concurrency
+                conn.pragma_update(None, "journal_mode", "WAL")?;
+                conn.pragma_update(None, "synchronous", "NORMAL")?;
+                Ok(())
+            });
+        
+        let pool = Pool::builder()
+            .max_size(30)  
+            .min_idle(Some(15))  
+            .connection_timeout(Duration::from_secs(120))  
+            .build(manager)
+            .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
 
         Ok(OswAccess { pool })
     }
