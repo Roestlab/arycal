@@ -775,7 +775,7 @@ impl Runner {
                     // Insert in batches for better performance
                     if batch.len() >= batch_size {
                         for osw_access in feature_access {
-                            log::debug!("Inserting batch of {} full trace aligned features and scores", batch.len());
+                            log::debug!("Inserting batch of {} of {} full trace aligned features and scores", batch.len(), results.len());
                             osw_access.insert_feature_alignment_batch(&batch)?;
                         }
                         batch.clear();
@@ -793,6 +793,7 @@ impl Runner {
         // Insert any remaining records
         if !batch.is_empty() {
             for osw_access in feature_access {
+                log::debug!("Inserting remaining batch of {} full trace aligned features and scores", batch.len());
                 osw_access.insert_feature_alignment_batch(&batch)?;
             }
         }
@@ -833,7 +834,7 @@ impl Runner {
                     // Insert in batches for better performance
                     if batch.len() >= batch_size {
                         for osw_access in feature_access {
-                            log::debug!("Inserting batch of {} ms2 aligned features and scores", batch.len());
+                            log::debug!("Inserting batch of {} of {} ms2 aligned features and scores", batch.len(), results.len());
                             osw_access.insert_feature_ms2_alignment_batch(&batch)?;
                         }
                         batch.clear();
@@ -851,6 +852,7 @@ impl Runner {
         // Insert any remaining records
         if !batch.is_empty() {
             for osw_access in feature_access {
+                log::debug!("Inserting remaining batch of {} ms2 aligned features and scores", batch.len());
                 osw_access.insert_feature_ms2_alignment_batch(&batch)?;
             }
         }
@@ -893,7 +895,7 @@ impl Runner {
                     // Insert in batches for better performance
                     if batch.len() >= batch_size {
                         for osw_access in feature_access {
-                            log::debug!("Inserting batch of {} transition aligned features and scores", batch.len());
+                            log::debug!("Inserting batch of {} of {} transition aligned features and scores", batch.len(), results.len());
                             osw_access.insert_feature_transition_alignment_batch(&batch)?;
                         }
                         batch.clear();
@@ -914,6 +916,7 @@ impl Runner {
         // Insert any remaining records
         if !batch.is_empty() {
             for osw_access in feature_access {
+                log::debug!("Inserting remaining batch of {} transition aligned features and scores", batch.len());
                 osw_access.insert_feature_transition_alignment_batch(&batch)?;
             }
         }
