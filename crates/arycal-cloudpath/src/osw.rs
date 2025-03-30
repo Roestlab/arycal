@@ -1006,7 +1006,7 @@ impl OswAccess {
 
         // If the table exists, drop it and log a warning
         if table_exists {
-            log::warn!("Table FEATURE_ALIGNMENT seems to already exist. Dropping it to create a new table for incomng data.");
+            log::warn!("Table FEATURE_ALIGNMENT seems to already exist. Dropping it to create a new table for incoming data.");
             conn.execute(
                 "DROP TABLE FEATURE_ALIGNMENT;",
                 [],
@@ -1050,48 +1050,53 @@ impl OswAccess {
         &self,
         scores: &Vec<&FullTraceAlignmentScores>,
     ) -> Result<(), OpenSwathSqliteError> {
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
-
-        let tx = conn
-            .transaction()
-            .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
-
         {
-            let mut stmt = tx
-                .prepare(
-                    r#"
-                    INSERT INTO FEATURE_ALIGNMENT (
-                        reference_filename, aligned_filename,
-                        xcorr_coelution_to_reference, xcorr_shape_to_reference, mi_to_reference,
-                        xcorr_coelution_to_all, xcorr_shape_to_all, mi_to_all
-                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-                    "#,
-                )
+            // Get a connection from the pool
+            let mut conn = self
+                .pool
+                .get()
                 .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
-
-            for peak_mapping in scores {
-                stmt.execute(params![
-                    peak_mapping.reference_filename,
-                    peak_mapping.aligned_filename,
-                    peak_mapping.xcorr_coelution_to_ref,
-                    peak_mapping.xcorr_shape_to_ref,
-                    peak_mapping.mi_to_ref,
-                    peak_mapping.xcorr_coelution_to_all,
-                    peak_mapping.xcorr_shape_to_all,
-                    peak_mapping.mi_to_all
-                ])
+    
+            // Begin a transaction
+            let tx = conn
+                .transaction()
                 .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
-            }
-        }
-
-        tx.commit()
-            .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
-
+    
+            {
+                let mut stmt = tx
+                    .prepare(
+                        r#"
+                        INSERT INTO FEATURE_ALIGNMENT (
+                            reference_filename, aligned_filename,
+                            xcorr_coelution_to_reference, xcorr_shape_to_reference, mi_to_reference,
+                            xcorr_coelution_to_all, xcorr_shape_to_all, mi_to_all
+                        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                        "#,
+                    )
+                    .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+    
+                for peak_mapping in scores {
+                    stmt.execute(params![
+                        peak_mapping.reference_filename,
+                        peak_mapping.aligned_filename,
+                        peak_mapping.xcorr_coelution_to_ref,
+                        peak_mapping.xcorr_shape_to_ref,
+                        peak_mapping.mi_to_ref,
+                        peak_mapping.xcorr_coelution_to_all,
+                        peak_mapping.xcorr_shape_to_all,
+                        peak_mapping.mi_to_all
+                    ])
+                    .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+                }
+            } // `stmt` is dropped here
+    
+            tx.commit()
+                .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+        } // `tx` and `conn` are dropped here, returning the connection to the pool
+    
         Ok(())
     }
+    
 
     /// Create the FEATURE_MS2_ALIGNMENT table if it doesn't exist
     pub fn create_feature_ms2_alignment_table(&self) -> Result<(), OpenSwathSqliteError> {
@@ -1110,7 +1115,7 @@ impl OswAccess {
 
         // If the table exists, drop it and log a warning
         if table_exists {
-            log::warn!("Table FEATURE_MS2_ALIGNMENT seems to already exist. Dropping it to create a new table for incomng data.");
+            log::warn!("Table FEATURE_MS2_ALIGNMENT seems to already exist. Dropping it to create a new table for incoming data.");
             conn.execute(
                 "DROP TABLE FEATURE_MS2_ALIGNMENT;",
                 [],
@@ -1170,65 +1175,70 @@ impl OswAccess {
         &self,
         peak_mappings: &[PeakMapping], // Accepts a slice of PeakMapping for batch insertion
     ) -> Result<(), OpenSwathSqliteError> {
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
-
-        let tx = conn
-            .transaction()
-            .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
-
         {
-            let mut stmt = tx
-                .prepare(
-                    r#"
-                    INSERT INTO FEATURE_MS2_ALIGNMENT (
-                        alignment_id, precursor_id, run_id, reference_feature_id, aligned_feature_id,
-                        reference_rt, aligned_rt, reference_left_width, reference_right_width,
-                        aligned_left_width, aligned_right_width, reference_filename, aligned_filename,
-                        xcorr_coelution_to_reference, xcorr_shape_to_reference, mi_to_reference,
-                        xcorr_coelution_to_all, xcorr_shape_to_all, mi_to_all,
-                        retention_time_deviation, peak_intensity_ratio, label
-                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)
-                    "#,
-                )
+            // Get a connection from the pool
+            let mut conn = self
+                .pool
+                .get()
                 .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
-
-            for peak_mapping in peak_mappings {
-                stmt.execute(params![
-                    peak_mapping.alignment_id,
-                    peak_mapping.precursor_id,
-                    peak_mapping.run_id,
-                    peak_mapping.reference_feature_id,
-                    peak_mapping.aligned_feature_id,
-                    peak_mapping.reference_rt,
-                    peak_mapping.aligned_rt,
-                    peak_mapping.reference_left_width,
-                    peak_mapping.reference_right_width,
-                    peak_mapping.aligned_left_width,
-                    peak_mapping.aligned_right_width,
-                    peak_mapping.reference_filename,
-                    peak_mapping.aligned_filename,
-                    peak_mapping.xcorr_coelution_to_ref,
-                    peak_mapping.xcorr_shape_to_ref,
-                    peak_mapping.mi_to_ref,
-                    peak_mapping.xcorr_coelution_to_all,
-                    peak_mapping.xcorr_shape_to_all,
-                    peak_mapping.mi_to_all,
-                    peak_mapping.rt_deviation,
-                    peak_mapping.intensity_ratio,
-                    peak_mapping.label,
-                ])
+    
+            // Begin a transaction
+            let tx = conn
+                .transaction()
                 .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
-            }
-        }
-
-        tx.commit()
-            .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
-
+    
+            {
+                let mut stmt = tx
+                    .prepare(
+                        r#"
+                        INSERT INTO FEATURE_MS2_ALIGNMENT (
+                            alignment_id, precursor_id, run_id, reference_feature_id, aligned_feature_id,
+                            reference_rt, aligned_rt, reference_left_width, reference_right_width,
+                            aligned_left_width, aligned_right_width, reference_filename, aligned_filename,
+                            xcorr_coelution_to_reference, xcorr_shape_to_reference, mi_to_reference,
+                            xcorr_coelution_to_all, xcorr_shape_to_all, mi_to_all,
+                            retention_time_deviation, peak_intensity_ratio, label
+                        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)
+                        "#,
+                    )
+                    .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+    
+                for peak_mapping in peak_mappings {
+                    stmt.execute(params![
+                        peak_mapping.alignment_id,
+                        peak_mapping.precursor_id,
+                        peak_mapping.run_id,
+                        peak_mapping.reference_feature_id,
+                        peak_mapping.aligned_feature_id,
+                        peak_mapping.reference_rt,
+                        peak_mapping.aligned_rt,
+                        peak_mapping.reference_left_width,
+                        peak_mapping.reference_right_width,
+                        peak_mapping.aligned_left_width,
+                        peak_mapping.aligned_right_width,
+                        peak_mapping.reference_filename,
+                        peak_mapping.aligned_filename,
+                        peak_mapping.xcorr_coelution_to_ref,
+                        peak_mapping.xcorr_shape_to_ref,
+                        peak_mapping.mi_to_ref,
+                        peak_mapping.xcorr_coelution_to_all,
+                        peak_mapping.xcorr_shape_to_all,
+                        peak_mapping.mi_to_all,
+                        peak_mapping.rt_deviation,
+                        peak_mapping.intensity_ratio,
+                        peak_mapping.label,
+                    ])
+                    .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+                }
+            } // `stmt` goes out of scope here and is dropped
+    
+            tx.commit()
+                .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+        } // `tx` and `conn` go out of scope here, ensuring they are returned to the pool
+    
         Ok(())
     }
+    
 
     /// Create the FEATURE_TRANSITION_ALIGNMENT table if it doesn't exist
     pub fn create_feature_transition_alignment_table(&self) -> Result<(), OpenSwathSqliteError> {
@@ -1247,7 +1257,7 @@ impl OswAccess {
 
         // If the table exists, drop it and log a warning
         if table_exists {
-            log::warn!("Table FEATURE_TRANSITION_ALIGNMENT seems to already exist. Dropping it to create a new table for incomng data.");
+            log::warn!("Table FEATURE_TRANSITION_ALIGNMENT seems to already exist. Dropping it to create a new table for incoming data.");
             conn.execute(
                 "DROP TABLE FEATURE_TRANSITION_ALIGNMENT;",
                 [],
@@ -1293,50 +1303,55 @@ impl OswAccess {
         &self,
         peak_mappings: &[AlignedTransitionScores],
     ) -> Result<(), OpenSwathSqliteError> {
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
-
-        let tx = conn
-            .transaction()
-            .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
-
         {
-            let mut stmt = tx
-                .prepare(
-                    r#"
-                    INSERT INTO FEATURE_TRANSITION_ALIGNMENT (
-                        feature_id, transition_id, label,
-                        xcorr_coelution_to_reference, xcorr_shape_to_reference, mi_to_reference,
-                        xcorr_coelution_to_all, xcorr_shape_to_all, mi_to_all,
-                        retention_time_deviation, peak_intensity_ratio
-                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
-                    "#,
-                )
+            // Get a connection from the pool
+            let mut conn = self
+                .pool
+                .get()
                 .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
-
-            for peak_mapping in peak_mappings {
-                stmt.execute(params![
-                    peak_mapping.feature_id,
-                    peak_mapping.transition_id,
-                    peak_mapping.label,
-                    peak_mapping.xcorr_coelution_to_ref,
-                    peak_mapping.xcorr_shape_to_ref,
-                    peak_mapping.mi_to_ref,
-                    peak_mapping.xcorr_coelution_to_all,
-                    peak_mapping.xcorr_shape_to_all,
-                    peak_mapping.mi_to_all,
-                    peak_mapping.rt_deviation,
-                    peak_mapping.intensity_ratio,
-                ])
+    
+            // Begin a transaction
+            let tx = conn
+                .transaction()
                 .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
-            }
-        }
-
-        tx.commit()
-            .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
-
+    
+            {
+                let mut stmt = tx
+                    .prepare(
+                        r#"
+                        INSERT INTO FEATURE_TRANSITION_ALIGNMENT (
+                            feature_id, transition_id, label,
+                            xcorr_coelution_to_reference, xcorr_shape_to_reference, mi_to_reference,
+                            xcorr_coelution_to_all, xcorr_shape_to_all, mi_to_all,
+                            retention_time_deviation, peak_intensity_ratio
+                        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                        "#,
+                    )
+                    .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+    
+                for peak_mapping in peak_mappings {
+                    stmt.execute(params![
+                        peak_mapping.feature_id,
+                        peak_mapping.transition_id,
+                        peak_mapping.label,
+                        peak_mapping.xcorr_coelution_to_ref,
+                        peak_mapping.xcorr_shape_to_ref,
+                        peak_mapping.mi_to_ref,
+                        peak_mapping.xcorr_coelution_to_all,
+                        peak_mapping.xcorr_shape_to_all,
+                        peak_mapping.mi_to_all,
+                        peak_mapping.rt_deviation,
+                        peak_mapping.intensity_ratio,
+                    ])
+                    .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+                }
+            } // `stmt` is dropped here
+    
+            tx.commit()
+                .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+        } // `tx` and `conn` are dropped here, returning the connection to the pool
+    
         Ok(())
     }
+    
 }
