@@ -12,6 +12,9 @@ use std::collections::HashMap;
 use std::time::Instant;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::alloc;
+use cap::Cap;
+use sysinfo::System;
 
 use arycal_cloudpath::{
     tsv::load_precursor_ids_from_tsv,
@@ -81,132 +84,25 @@ impl Runner {
 
     #[cfg(not(feature = "mpi"))]
     pub fn run(&mut self) -> anyhow::Result<()> {
+        #[global_allocator]
+        static ALLOCATOR: Cap<alloc::System> = Cap::new(alloc::System, usize::max_value());
 
-        // Print log info of alignment params from self.parameters.alignment
+        let mut system = sysinfo::System::new_all();
+        system.refresh_all();
+        let total_memory = system.total_memory();
+        let starting_memory = system.used_memory();
+
         log::debug!("{}", self.parameters.alignment);
-
-        let precursor_map = &self.precursor_map; 
-
-        // let results: Vec<
-        //     Result<HashMap<i32, PrecursorAlignmentResult>, ArycalError>,
-        // > = precursor_map
-        //     .par_chunks(self.parameters.alignment.batch_size.unwrap_or_default()) 
-        //     .map(|batch| {
-        //         let mut batch_results = Vec::new();
-        //         let mut progress = None;
-        //         if !self.parameters.disable_progress_bar {
-        //             progress = Some(Progress::new(
-        //                 batch.len(),
-        //                 format!(
-        //                     "[arycal] Thread {:?} - Aligning precursors",
-        //                     rayon::current_thread_index().unwrap_or(0)
-        //                 )
-        //                 .as_str(),
-        //             ));
-        //         }
-        //         let start_time = Instant::now();
-        //         for precursor in batch {
-        //             let result = self.process_precursor(precursor).map_err(|e| ArycalError::Custom(e.to_string()));
-        //             batch_results.push(result);
-        //             if !self.parameters.disable_progress_bar {
-        //                 progress.as_ref().expect("The Progess tqdm logger is not enabled").inc();
-        //             }
-        //             // Update the shared progress if progress_num is Some
-        //             if let Some(progress_num) = &self.progress_num {
-        //                 let mut progress_num = progress_num.lock().unwrap();
-        //                 *progress_num += 1.0 / precursor_map.len() as f32;
-        //             }
-        //         }
-        //         let end_time = Instant::now();
-        //         if self.parameters.disable_progress_bar {
-        //             log::info!("Batch of {} precursors aligned in {:?}", batch.len(), end_time.duration_since(start_time));
-        //         }
-        //         Ok(batch_results)
-        //     })
-        //     .collect::<Result<Vec<_>, ArycalError>>()? 
-        //     .into_iter()
-        //     .flatten() 
-        //     .collect();
-
-        // Create a custom thread pool with limited parallelism
-        let pool = ThreadPoolBuilder::new()
-        .num_threads(self.parameters.alignment.batch_size.unwrap_or(rayon::max_num_threads() - 4)) 
-        .build()
-        .unwrap();
-
-        let processed_count = Arc::new(AtomicUsize::new(0));
-        let batch_size = self.parameters.alignment.batch_size.unwrap_or(rayon::max_num_threads() - 4);
+    
+        let precursor_map = &self.precursor_map;
         let total_count = precursor_map.len();
+        let precursor_threads = self.parameters.alignment.precursor_threads.unwrap_or(rayon::max_num_threads() - 4);
+        let batch_size = self.parameters.alignment.batch_size.unwrap_or(500);
         let global_start = Instant::now();
-        let batch_start = Arc::new(std::sync::Mutex::new(Instant::now())); // For batch timing
-
-        log::info!("Will align {} precursors in parallel at a time", batch_size);
+    
+        log::info!("Will align {} precursors in parallel at a time", precursor_threads);
         log::info!("Starting alignment for {} precursors", total_count);
-
-        let results = pool.install(|| {
-            precursor_map
-                .par_iter()
-                .map(|precursor| {
-                    let result = self.process_precursor(precursor)
-                        .map_err(|e| ArycalError::Custom(e.to_string()));
-
-                    // Update progress
-                    if let Some(progress_num) = &self.progress_num {
-                        let mut progress_num = progress_num.lock().unwrap();
-                        *progress_num += 1.0 / total_count as f32;
-                    }
-
-                    // Get and increment count
-                    let count = processed_count.fetch_add(1, Ordering::Relaxed) + 1;
-
-                    // Log timing for every 500 precursors
-                    if count % 500 == 1 {
-                        // First item in new batch - reset timer
-                        *batch_start.lock().unwrap() = Instant::now();
-                    }
-                    else if count % 500 == 0 || count == total_count {
-                        // Last item in batch - log batch duration
-                        let batch_time = batch_start.lock().unwrap().elapsed();
-                        log::info!(
-                            "Batch of {} precursors aligned and scored in {:?} ({:.4}/min) | Total: {}/{}",
-                            count.min(500), // Handle final partial batch
-                            batch_time,
-                            500 as f64 / (batch_time.as_secs_f64() / 60.0),
-                            count,
-                            total_count
-                        );
-                    }
-
-                    result
-                })
-                .collect()
-        });
-
-        // Final stats
-        let total_elapsed = global_start.elapsed();
-        log::info!(
-            "Aligned and scored {} precursors in {:?} ({:.2}/sec)",
-            total_count,
-            total_elapsed,
-            total_count as f64 / total_elapsed.as_secs_f64()
-        );
-
-        // // Filter precursor map for modified sequence = LTPEAIR and charge = 2
-        // let filtered_precursors: Vec<PrecursorIdData> = self.precursor_map
-        //     .iter()
-        //     .filter(|p| p.modified_sequence == "LTPEAIR" && p.precursor_charge == 2)
-        //     .cloned()
-        //     .collect();
-
-        // // Process the filtered precursors
-        // let results: Vec<Result<HashMap<i32, HashMap<std::string::String, Vec<PeakMapping>>>, anyhow::Error>> = filtered_precursors
-        //     .par_iter()
-        //     .map(|precursor| {
-        //         self.process_precursor(&precursor)
-        //     })
-        //     .collect();
-
-        // Write out to separate file if scores_output_file is provided
+    
         let feature_access = if let Some(scores_output_file) = &self.parameters.alignment.scores_output_file {
             let scores_output_file = scores_output_file.clone();
             let osw_access = OswAccess::new(&scores_output_file)?;
@@ -214,25 +110,83 @@ impl Runner {
         } else {
             self.feature_access.clone()
         };
-        
 
+        // Initialize writers if they don't exist or drop them if they do
         if self.parameters.alignment.compute_scores.unwrap_or_default() {
-            // Write FEATURE_ALIGNMENT results to the database
-            self.write_aligned_score_results_to_db(&feature_access, &results)?;
+            for osw_access in &feature_access {
+                osw_access.create_feature_alignment_table()?;
+            }
         }
-        
-        // Write FEATURE_MS2_ALIGNMENT results to the database
-        self.write_ms2_alignment_results_to_db(&feature_access, &results)?;
 
-        // Write FEATURE_TRANSITION_ALIGNMENT results to the database
+        for osw_access in &feature_access {
+            osw_access.create_feature_ms2_alignment_table()?;
+        }
+
         if self.parameters.filters.include_identifying_transitions.unwrap_or_default() && self.parameters.alignment.compute_scores.unwrap_or_default() {
-            self.write_transition_alignment_results_to_db(&feature_access, &results)?;   
+            for osw_access in &feature_access {
+                osw_access.create_feature_transition_alignment_table()?;
+            }
         }
-
+    
+        let mut start_idx = 0;
+        while start_idx < total_count {
+            let end_idx = (start_idx + batch_size).min(total_count);
+            let batch_start_time = Instant::now();
+    
+            // Slice the batch
+            let batch = &precursor_map[start_idx..end_idx];
+    
+            let results: Vec<_> = rayon::ThreadPoolBuilder::new()
+                .num_threads(precursor_threads)
+                .build()?
+                .install(|| {
+                    batch.par_iter()
+                        .map(|precursor| {
+                            self.process_precursor(precursor)
+                                .map_err(|e| ArycalError::Custom(e.to_string()))
+                        })
+                        .collect()
+                });
+    
+            // Write results for this batch
+            if self.parameters.alignment.compute_scores.unwrap_or_default() {
+                self.write_aligned_score_results_to_db(&feature_access, &results)?;
+            }
+    
+            self.write_ms2_alignment_results_to_db(&feature_access, &results)?;
+    
+            if self.parameters.filters.include_identifying_transitions.unwrap_or_default()
+                && self.parameters.alignment.compute_scores.unwrap_or_default() {
+                self.write_transition_alignment_results_to_db(&feature_access, &results)?;
+            }
+    
+            let elapsed = batch_start_time.elapsed();
+            log::info!(
+                "Batch {}-{} processed in {:.2?} ({:.2}/min) - {} MiB / {} GiB",
+                start_idx,
+                end_idx,
+                elapsed,
+                (end_idx - start_idx) as f64 / (elapsed.as_secs_f64() / 60.0),
+                ALLOCATOR.allocated() / 1024 / 1024,
+                total_memory / 1024 / 1024 / 1024
+            );
+    
+            start_idx += batch_size;
+        }
+    
+        let total_elapsed = global_start.elapsed();
+        log::info!(
+            "Aligned and scored {} precursors in {:?} ({:.2}/sec)",
+            total_count,
+            total_elapsed,
+            total_count as f64 / total_elapsed.as_secs_f64()
+        );
+    
         let run_time = (Instant::now() - self.start).as_secs();
         info!("finished in {}s", run_time);
         Ok(())
     }
+    
 
     #[cfg(feature = "mpi")]
     pub fn run(&self) -> anyhow::Result<()> {
@@ -747,11 +701,6 @@ impl Runner {
         feature_access: &Vec<OswAccess>,
         results: &Vec<Result<HashMap<i32, PrecursorAlignmentResult>, ArycalError>>, 
     ) -> Result<()> {
-        // Ensure the FEATURE_ALIGNMENT table exists
-        for osw_access in feature_access {
-            osw_access.create_feature_alignment_table()?;
-        }
-    
         let mut batch = Vec::new();
         let batch_size = 1000; 
     
@@ -806,11 +755,6 @@ impl Runner {
         feature_access: &Vec<OswAccess>,
         results: &Vec<Result<HashMap<i32, PrecursorAlignmentResult>, ArycalError>>, 
     ) -> Result<()> {
-        // Ensure the FEATURE_MS2_ALIGNMENT table exists
-        for osw_access in feature_access {
-            osw_access.create_feature_ms2_alignment_table()?;
-        }
-    
         let mut batch = Vec::new();
         let batch_size = 1000; 
     
@@ -867,11 +811,6 @@ impl Runner {
         feature_access: &Vec<OswAccess>,
         results: &Vec<Result<HashMap<i32, PrecursorAlignmentResult>, ArycalError>>, 
     ) -> Result<()> {
-        // Ensure the FEATURE_TRANSITION_ALIGNMENT table exists
-        for osw_access in feature_access {
-            osw_access.create_feature_transition_alignment_table()?;
-        }
-    
         let mut batch = Vec::new();
         let batch_size = 1000; 
         
