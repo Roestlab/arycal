@@ -100,7 +100,7 @@ impl Runner {
         let batch_size = self.parameters.alignment.batch_size.unwrap_or(500);
         let global_start = Instant::now();
     
-        log::info!("Will align {} precursors in parallel at a time", precursor_threads);
+        // log::info!("Will align {} precursors in parallel at a time", precursor_threads);
         log::info!("Starting alignment for {} precursors", total_count);
     
         let feature_access = if let Some(scores_output_file) = &self.parameters.alignment.scores_output_file {
