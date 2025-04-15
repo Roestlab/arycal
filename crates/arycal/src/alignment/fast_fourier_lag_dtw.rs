@@ -5,9 +5,8 @@ use std::collections::HashMap;
 use std::f64;
 use dtw_rs::{Algorithm, DynamicTimeWarping};
 
-use arycal_cloudpath::sqmass::Chromatogram;
-use crate::alignment::alignment::AlignedChromatogram;
 use crate::alignment::fast_fourier_lag::{find_lag_with_max_correlation, shift_chromatogram};
+use arycal_common::chromatogram::{Chromatogram, AlignedChromatogram};
 use arycal_common::config::AlignmentConfig;
 use arycal_cloudpath::util::extract_basename;
 

@@ -3,11 +3,11 @@ use rand::prelude::IndexedRandom;
 use anyhow::Error as AnyHowError;
 use dtw_rs::{Algorithm, DynamicTimeWarping};
 
-use arycal_cloudpath::sqmass::{Chromatogram, TransitionGroup,  pad_chromatograms};
+use arycal_cloudpath::sqmass::TransitionGroup;
 
 use super::alignment::calculate_distance;
 use super::alignment::construct_mst;
-use super::alignment::AlignedChromatogram;
+use arycal_common::chromatogram::{Chromatogram, AlignedChromatogram, pad_chromatograms};
 use arycal_common::config::AlignmentConfig;
 use arycal_cloudpath::util::extract_basename;
 

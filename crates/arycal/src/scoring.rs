@@ -3,9 +3,9 @@ use ndarray::{Array1, Array2};
 use std::{collections::HashMap, sync::Arc};
 use rand::{seq::SliceRandom, Rng};
 
-use arycal_cloudpath::sqmass::{Chromatogram, TransitionGroup};
-use arycal_common::{AlignedTransitionScores, FullTraceAlignmentScores, PeakMapping};
-use crate::{alignment::alignment::{validate_widths, AlignedChromatogram}, stats::{calc_mi_score, calc_mi_to_many_score, calc_xcorr_coelution_score, calc_xcorr_shape_score, calc_xcorr_shape_to_many_score, calc_xcorr_to_many_score}};
+use arycal_cloudpath::sqmass::TransitionGroup;
+use arycal_common::{chromatogram::{Chromatogram, AlignedChromatogram}, AlignedTransitionScores, FullTraceAlignmentScores, PeakMapping};
+use crate::{alignment::alignment::validate_widths, stats::{calc_mi_score, calc_mi_to_many_score, calc_xcorr_coelution_score, calc_xcorr_shape_score, calc_xcorr_shape_to_many_score, calc_xcorr_to_many_score}};
 
 
 pub fn compute_alignment_scores(

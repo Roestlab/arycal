@@ -6,8 +6,8 @@ use rand::seq::IndexedRandom;
 use union_find::{QuickFindUf, UnionBySize, UnionFind};
 
 use arycal_cloudpath::osw::{FeatureData, ValueEntryType};
-use arycal_cloudpath::sqmass::{apply_common_rt_space_single, Chromatogram, TransitionGroup};
-use arycal_common::PeakMapping;
+use arycal_cloudpath::sqmass::TransitionGroup;
+use arycal_common::{chromatogram::{Chromatogram, AlignedChromatogram, apply_common_rt_space_single}, PeakMapping};
 
 use super::fast_fourier_lag::shift_chromatogram;
 
@@ -134,18 +134,7 @@ impl ReferenceMethod {
     
 }
 
-/// Represents the mapping of peaks across chromatograms.
-#[derive(Debug, Clone)]
-pub struct AlignedChromatogram {
-    /// Aligned chromatogram
-    pub chromatogram: Chromatogram,
-    /// Optimal alignment path between the reference and query chromatograms (Only for DTW and FFT-DTW)
-    pub alignment_path: Vec<(usize, usize)>,
-    /// Lag between the reference and query chromatograms (Only for FFT and FFT-DTW)
-    pub lag: Option<isize>,
-    /// Mapping of retention times between the original and aligned chromatograms
-    pub rt_mapping: Vec<HashMap<String, String>>,
-}
+
 
 /// Calculates the Euclidean distance between two chromatograms.
 ///
@@ -162,7 +151,7 @@ pub fn calculate_distance(chrom1: &Chromatogram, chrom2: &Chromatogram) -> f64 {
     }
 
     // Calculate the Euclidean distance between the intensities
-    let mut sum = 0.0;
+    let mut sum: f64 = 0.0;
     for (i1, i2) in chrom1.intensities.iter().zip(&chrom2.intensities) {
         sum += (i1 - i2).powi(2);
     }

@@ -8,3 +8,5 @@ anyhow = "1.0"
 thiserror = "2.0.12"
 serde = { version = "1.0", features = ["derive"] }
 tqdm = {git = "https://github.com/singjc/tqdm.git", branch = "add/update_desc"}
+ordered-float = "5.0.0"
+savgol-rs = "0.1.0"

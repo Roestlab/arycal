@@ -1,21 +1,43 @@
-use thiserror::Error;
+
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 
 pub mod config;
 pub mod logging;
+pub mod error;
+pub mod chromatogram;
 
 
 
-#[derive(Error, Debug, Serialize, Deserialize)]
-pub enum ArycalError {
-    #[error("An error occurred: {0}")]
-    Custom(String),
-    #[error("IO error: {0}")]
-    Io(String),
-    // Add other error variants as needed
+
+
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct PrecursorXics {
+    pub precursor_id: i32,
+    pub smoothed_tics: Vec<chromatogram::Chromatogram>,
+    pub common_rt_space: Vec<f64>,
+    pub group_id: String,
+    pub native_ids: Vec<String>,
 }
 
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AlignedTics {
+    pub precursor_id: i32,
+    pub group_id: String,
+    pub common_rt_space: Vec<f64>,
+    pub aligned_chromatograms: Vec<chromatogram::AlignedChromatogram>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PeakMappingScores {
+    pub precursor_id: i32,
+    pub mapped_peaks: HashMap<String, Vec<PeakMapping>>,
+    pub alignment_scores: HashMap<String, Vec<FullTraceAlignmentScores>>,
+    pub detecting_transition_scores: HashMap<String, Vec<PeakMapping>>,
+    pub identifying_transition_scores: HashMap<String, Vec<AlignedTransitionScores>>,
+}
 
 /// Represents the result of the precursor alignment.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
