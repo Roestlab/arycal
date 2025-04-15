@@ -19,10 +19,10 @@ use sysinfo::System;
 use arycal_cloudpath::{
     tsv::load_precursor_ids_from_tsv,
     osw::{OswAccess, PrecursorIdData},
-    sqmass::{create_common_rt_space, SqMassAccess},
+    sqmass::SqMassAccess,
 };
-use arycal_common::{logging::Progress, AlignedTransitionScores, ArycalError, FullTraceAlignmentScores, PeakMapping, PrecursorAlignmentResult};
-use arycal_core::{alignment::{self, alignment::{apply_post_alignment_to_trgrp, AlignedChromatogram}, dynamic_time_warping::align_chromatograms, fast_fourier_lag::shift_chromatogram}, scoring::{compute_alignment_scores, compute_peak_mapping_scores, compute_peak_mapping_transitions_scores}};
+use arycal_common::{logging::Progress, chromatogram::{Chromatogram, create_common_rt_space, AlignedChromatogram}, AlignedTransitionScores, error::ArycalError, PrecursorXics, AlignedTics, FullTraceAlignmentScores, PeakMapping, PrecursorAlignmentResult, PeakMappingScores};
+use arycal_core::{alignment::{self, alignment::apply_post_alignment_to_trgrp, dynamic_time_warping::align_chromatograms, fast_fourier_lag::shift_chromatogram}, scoring::{compute_alignment_scores, compute_peak_mapping_scores, compute_peak_mapping_transitions_scores}};
 use arycal_core::{
     alignment::alignment::map_peaks_across_runs,
     alignment::dynamic_time_warping::{star_align_tics, mst_align_tics, progressive_align_tics},
@@ -136,17 +136,32 @@ impl Runner {
             // Slice the batch
             let batch = &precursor_map[start_idx..end_idx];
     
-            let results: Vec<_> = rayon::ThreadPoolBuilder::new()
-                .num_threads(precursor_threads)
-                .build()?
-                .install(|| {
-                    batch.par_iter()
-                        .map(|precursor| {
-                            self.process_precursor(precursor)
-                                .map_err(|e| ArycalError::Custom(e.to_string()))
-                        })
-                        .collect()
-                });
+            // let results: Vec<_> = rayon::ThreadPoolBuilder::new()
+            //     .num_threads(precursor_threads)
+            //     .build()?
+            //     .install(|| {
+            //         batch.par_iter()
+            //             .map(|precursor| {
+            //                 self.process_precursor(precursor)
+            //                     .map_err(|e| ArycalError::Custom(e.to_string()))
+            //             })
+            //             .collect()
+            //     });
+
+            // Step 1: Extract all XICs for the batch
+            let start_time = Instant::now();
+            let xics_batch = self.prepare_xics_batch(batch)?;
+            log::debug!("XIC extraction for batch of {} precursors took: {:?}", batch.len(), start_time.elapsed());
+
+            // Step 2: Align all TICs for the batch
+            let start_time = Instant::now();
+            let aligned_batch = self.align_tics_batch(&xics_batch)?;
+            log::debug!("TIC alignment for batch of {} precursors took: {:?}", batch.len(), start_time.elapsed());
+
+            // Step 3: Process all peak mappings for the batch
+            let start_time = Instant::now();
+            let results: HashMap<i32, PrecursorAlignmentResult> = self.process_peak_mappings_batch(&aligned_batch, batch)?;
+            log::debug!("Peak mapping and scoring for batch of {} precursors took: {:?}", batch.len(), start_time.elapsed());
     
             // Write results for this batch
             if self.parameters.alignment.compute_scores.unwrap_or_default() {
@@ -166,7 +181,7 @@ impl Runner {
                 start_idx,
                 end_idx,
                 elapsed,
-                (end_idx - start_idx) as f64 / (elapsed.as_secs_f64() / 60.0),
+                ((end_idx - start_idx) as f64 / (elapsed.as_secs_f64() / 60.0)).floor(),
                 ALLOCATOR.allocated() / 1024 / 1024,
                 total_memory / 1024 / 1024 / 1024
             );
@@ -696,54 +711,349 @@ impl Runner {
         Ok(aligned_chromatograms)
     }
 
+
+    // Extract XICs for a batch of precursors
+    pub fn prepare_xics_batch(
+        &self,
+        precursors: &[PrecursorIdData],
+    ) -> anyhow::Result<HashMap<i32, PrecursorXics>> {
+        precursors
+            .par_iter()
+            .filter_map(|precursor| {
+                match self.prepare_xics(precursor) {
+                    Ok(xics) if xics != PrecursorXics::default() => {
+                        Some(Ok((precursor.precursor_id, xics)))
+                    }
+                    Ok(_) => {
+                        log::trace!("Skipping precursor {} due to empty/default XICs", precursor.precursor_id);
+                        None
+                    }
+                    Err(e) => {
+                        log::warn!("Error processing precursor {}: {}", precursor.precursor_id, e);
+                        None
+                    }
+                }
+            })
+            .collect()
+    }
+
+    // Extract and process XICs for a single precursor
+    fn prepare_xics(
+        &self,
+        precursor: &PrecursorIdData,
+    ) -> anyhow::Result<PrecursorXics> {
+        let native_ids = precursor.clone().extract_native_ids_for_sqmass(
+            self.parameters.xic.include_precursor,
+            self.parameters.xic.num_isotopes,
+        );
+        let native_ids_str: Vec<&str> = native_ids.iter().map(|s| s.as_str()).collect();
+        let group_id = precursor.modified_sequence.clone() + "_" + &precursor.precursor_charge.to_string();
+
+        // Extract chromatograms
+        let start_time = Instant::now();
+        let chromatograms: Vec<_> = self
+            .xic_access
+            .iter()
+            .map(|access| {
+                access.read_chromatograms("NATIVE_ID", native_ids_str.clone(), group_id.clone())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        log::debug!("XIC extraction took: {:?}", start_time.elapsed());
+
+        // Validate chromatograms
+        if chromatograms[0].chromatograms.iter().map(|c| c.1.intensities.len()).sum::<usize>() < 10 {
+            log::trace!("The first chromatogram has less than 10 points, skipping precursor with: {:?}", precursor.precursor_id);
+            return Ok(PrecursorXics::default());
+        }
+
+        for chrom in &chromatograms {
+            for (_, data) in &chrom.chromatograms {
+                if data.intensities.iter().any(|&x| x.is_nan()) || 
+                   data.retention_times.iter().any(|&x| x.is_nan()) {
+                    log::trace!("NaN values detected in chromatograms, skipping precursor with: {:?}", precursor.precursor_id);
+                    return Ok(PrecursorXics::default());
+                }
+            }
+        }
+
+        // Process chromatograms
+        let start_time = Instant::now();
+        let tics: Vec<_> = chromatograms.iter().map(|c| c.calculate_tic()).collect();
+        let common_rt_space = create_common_rt_space(tics);
+        let smoothed_tics = common_rt_space
+            .iter()
+            .map(|tic| {
+                tic.smooth_sgolay(
+                    self.parameters.alignment.smoothing.sgolay_window,
+                    self.parameters.alignment.smoothing.sgolay_order,
+                )?
+                .normalize()
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        log::debug!("TIC processing took: {:?}", start_time.elapsed());
+
+        Ok(PrecursorXics {
+            precursor_id: precursor.precursor_id,
+            smoothed_tics,
+            common_rt_space: common_rt_space[0].retention_times.clone(),
+            group_id,
+            native_ids,
+        })
+    }
+
+    // Align TICs for a batch of precursors
+    pub fn align_tics_batch(
+        &self,
+        xics_batch: &HashMap<i32, PrecursorXics>,
+    ) -> anyhow::Result<HashMap<i32, AlignedTics>> {
+        xics_batch
+            .par_iter()
+            .map(|(precursor_id, xics)| {
+                let aligned = self.align_tics(xics)?;
+                Ok((*precursor_id, aligned))
+            })
+            .collect()
+    }
+
+    // Align TICs for a single precursor
+    fn align_tics(
+        &self,
+        xics: &PrecursorXics,
+    ) -> anyhow::Result<AlignedTics> {
+        log::trace!("Aligning TICs using {:?} with reference type: {:?}", 
+            self.parameters.alignment.method.as_str(), 
+            self.parameters.alignment.reference_type);
+
+        let aligned_chromatograms = match self.parameters.alignment.method.to_lowercase().as_str() {
+            "dtw" => match self.parameters.alignment.reference_type.as_str() {
+                "star" => star_align_tics(xics.smoothed_tics.clone(), &self.parameters.alignment)?,
+                "mst" => mst_align_tics(xics.smoothed_tics.clone())?,
+                "progressive" => progressive_align_tics(xics.smoothed_tics.clone())?,
+                _ => star_align_tics(xics.smoothed_tics.clone(), &self.parameters.alignment)?,
+            },
+            "fft" => match self.parameters.alignment.reference_type.as_str() {
+                "star" => star_align_tics_fft(xics.smoothed_tics.clone(), &self.parameters.alignment)?,
+                "mst" => mst_align_tics_fft(xics.smoothed_tics.clone())?,
+                "progressive" => progressive_align_tics_fft(xics.smoothed_tics.clone())?,
+                _ => star_align_tics_fft(xics.smoothed_tics.clone(), &self.parameters.alignment)?,
+            },
+            "fftdtw" => star_align_tics_fft_with_local_refinement(xics.smoothed_tics.clone(), &self.parameters.alignment)?,
+            _ => star_align_tics(xics.smoothed_tics.clone(), &self.parameters.alignment)?,
+        };
+
+        Ok(AlignedTics {
+            precursor_id: xics.precursor_id,
+            group_id: xics.group_id.clone(),
+            common_rt_space: xics.common_rt_space.clone(),
+            aligned_chromatograms,
+        })
+    }
+
+    // Process peak mappings for a batch
+    pub fn process_peak_mappings_batch(
+        &self,
+        aligned_batch: &HashMap<i32, AlignedTics>,
+        precursors: &[PrecursorIdData],
+    ) -> anyhow::Result<HashMap<i32, PrecursorAlignmentResult>> {
+        // Create a lookup map from precursor_id to PrecursorIdData for efficient access
+        let precursor_map: HashMap<i32, &PrecursorIdData> = precursors
+            .iter()
+            .map(|precursor| (precursor.precursor_id, precursor))
+            .collect();
+    
+        aligned_batch
+            .par_iter()
+            .map(|(precursor_id, aligned)| {
+                // Look up the precursor data
+                let precursor = precursor_map.get(precursor_id)
+                    .ok_or_else(|| anyhow::anyhow!("Precursor {} not found in batch", precursor_id))?;
+    
+                // Process with both aligned data and precursor info
+                let mappings = self.process_peak_mappings(aligned, precursor)?;
+                Ok((*precursor_id, mappings))
+            })
+            .collect()
+    }
+
+    // Process peak mappings for a single precursor
+    fn process_peak_mappings(
+        &self,
+        aligned: &AlignedTics,
+        precursor: &PrecursorIdData,
+    ) -> anyhow::Result<PrecursorAlignmentResult> {
+        // Fetch feature data
+        let prec_feat_data = self.feature_access[0].fetch_full_precursor_feature_data_for_runs(
+            aligned.precursor_id,
+            aligned.aligned_chromatograms
+                .clone()
+                .iter()
+                .map(|chrom| chrom.chromatogram.metadata.get("basename").unwrap().to_string())
+                .collect(),
+        )?;
+
+        /* ------------------------------------------------------------------ */
+        /* Aligned Peak Mapping                                       */
+        /* ------------------------------------------------------------------ */
+        let peak_mapping_results: Vec<_> = aligned.aligned_chromatograms
+            .par_iter()
+            .filter_map(|chrom| {
+                let current_run = chrom.chromatogram.metadata.get("basename").unwrap();
+                log::trace!(
+                    "Mapping peaks from reference run: {} to current run: {}",
+                    chrom.rt_mapping[0].get("run1").unwrap(),
+                    current_run
+                );
+
+                // Filter prec_feat_data for current run
+                let current_run_feat_data: Vec<_> = prec_feat_data
+                    .iter()
+                    .filter(|f| &f.basename == current_run)
+                    .cloned()
+                    .collect();
+
+                // Get reference run feature data
+                let ref_run_feat_data: Vec<_> = prec_feat_data
+                    .iter()
+                    .filter(|f| &f.basename == chrom.rt_mapping[0].get("run1").unwrap())
+                    .cloned()
+                    .collect();
+
+                if current_run_feat_data.is_empty() || ref_run_feat_data.is_empty() {
+                    log::trace!(
+                        "Current run feature data or reference run feature data is empty, skipping peak mapping for run: {}",
+                        current_run
+                    );
+                    return None;
+                }
+
+                let mapped_peaks = map_peaks_across_runs(
+                    chrom,
+                    ref_run_feat_data,
+                    current_run_feat_data,
+                    self.parameters.alignment.rt_mapping_tolerance.unwrap_or_default(),
+                    &self.parameters.alignment,
+                );
+
+                Some((
+                    chrom.chromatogram.metadata.get("basename").unwrap().to_string(),
+                    mapped_peaks,
+                ))
+            })
+            .collect();
+
+        let mut mapped_prec_peaks = HashMap::new();
+        for (key, value) in peak_mapping_results {
+            mapped_prec_peaks.insert(key, value);
+        }
+
+        /* ------------------------------------------------------------------ */
+        /* Score Algined TICs                                         */
+        /* ------------------------------------------------------------------ */
+        let alignment_scores = if self.parameters.alignment.compute_scores.unwrap_or_default() {
+            compute_alignment_scores(aligned.aligned_chromatograms.clone())
+        } else {
+            HashMap::new()
+        };
+
+        /* ------------------------------------------------------------------ */
+        /* Step 5. Score Aligned Peaks                                        */
+        /* ------------------------------------------------------------------ */
+        let (scored_peak_mappings, all_peak_mappings) = if self.parameters.alignment.compute_scores.unwrap_or_default() {
+            log::trace!("Computing peak mapping scores");
+            let start_time = Instant::now();
+            let scored_peak_mappings =
+                compute_peak_mapping_scores(aligned.aligned_chromatograms.clone(), mapped_prec_peaks.clone());
+
+            // Create decoy aligned peaks based on the method specified in the parameters
+            let mut decoy_peak_mappings: HashMap<String, Vec<PeakMapping>> = HashMap::new();
+            if self.parameters.alignment.decoy_peak_mapping_method == "shuffle" {
+                log::trace!("Creating decoy peaks by shuffling query peaks");
+                decoy_peak_mappings = create_decoy_peaks_by_shuffling(&mapped_prec_peaks.clone());
+            } else if self.parameters.alignment.decoy_peak_mapping_method == "random_regions" {
+                log::trace!("Creating decoy peaks by picking random regions in the query XIC");
+                decoy_peak_mappings = create_decoy_peaks_by_random_regions(&aligned.aligned_chromatograms.clone(), &mapped_prec_peaks.clone(), self.parameters.alignment.decoy_window_size.unwrap_or_default());
+            }
+            log::trace!("Computing peak mapping scores for decoy peaks");
+            let scored_decoy_peak_mappings =
+                compute_peak_mapping_scores(aligned.aligned_chromatograms.clone(), decoy_peak_mappings.clone());
+
+            // Combine true and decoy peaks for analysis into HashMap<String, Vec<PeakMapping>>
+            let all_peak_mappings: HashMap<String, Vec<PeakMapping>> = {
+                let mut all_peak_mappings = HashMap::new();
+                for (key, value) in scored_peak_mappings
+                    .iter()
+                    .chain(scored_decoy_peak_mappings.iter())
+                {
+                    all_peak_mappings
+                        .entry(key.clone())
+                        .or_insert_with(Vec::new)
+                        .extend(value.clone());
+                }
+                all_peak_mappings
+            };
+            log::trace!("Peak mapping scoring took: {:?}", start_time.elapsed());
+            (scored_peak_mappings, all_peak_mappings)
+        } else {
+            (HashMap::new(), mapped_prec_peaks)
+        };
+
+        /* ------------------------------------------------------------------ */
+        /* Optional Step: Align and Score Identifying Transitions     */
+        /* ------------------------------------------------------------------ */
+        let identifying_transition_scores = if self.parameters.filters.include_identifying_transitions.unwrap_or_default() 
+            && self.parameters.alignment.compute_scores.unwrap_or_default() {
+                let start_time = Instant::now();
+                log::trace!("Processing identifying transitions - aligning and scoring");
+                let id_peak_scores = self.process_identifying_transitions(aligned.group_id.clone(), precursor, aligned.aligned_chromatograms.clone(), scored_peak_mappings.clone(), aligned.common_rt_space.clone());
+                log::trace!("Identifying peak mapping scoring took: {:?}", start_time.elapsed());
+                id_peak_scores
+        } else {
+            HashMap::new()
+        };
+
+        Ok(PrecursorAlignmentResult {
+            alignment_scores: alignment_scores,
+            detecting_peak_mappings: all_peak_mappings,
+            identifying_peak_mapping_scores: identifying_transition_scores,
+        })
+    }
+
     fn write_aligned_score_results_to_db(
         &self,
-        feature_access: &Vec<OswAccess>,
-        results: &Vec<Result<HashMap<i32, PrecursorAlignmentResult>, ArycalError>>, 
+        feature_access: &[OswAccess],
+        results: &HashMap<i32, PrecursorAlignmentResult>,
     ) -> Result<()> {
-        let mut batch = Vec::new();
-        let batch_size = 1000; 
-    
-        let mut progress = None;
-        if !self.parameters.disable_progress_bar {
-            progress = Some(Progress::new(
+        // Initialize progress bar if enabled
+        let mut progress = if !self.parameters.disable_progress_bar {
+            Some(Progress::new(
                 results.len(),
                 "[arycal] Writing FEATURE_ALIGNMENT table to the database",
-            ));
-        }
+            ))
+        } else {
+            None
+        };
     
-        for result in results.iter() { // Iterate by reference
-            match result {
-                Ok(precursor_alignments) => {
-                    for (_, run_alignments) in precursor_alignments {
-                        for (_, peak_mappings) in &run_alignments.alignment_scores {
-                            batch.push(peak_mappings); // Clone values to avoid moving ownership
-                        }
-                    }
-    
-                    // Insert in batches for better performance
-                    if batch.len() >= batch_size {
-                        for osw_access in feature_access {
-                            log::debug!("Inserting batch of {} of {} full trace aligned features and scores", batch.len(), results.len());
-                            osw_access.insert_feature_alignment_batch(&batch)?;
-                        }
-                        batch.clear();
-                    }
-                }
-                Err(err) => {
-                    log::warn!("[arycal::write_aligned_score_results_to_db] Skipping result due to error: {:?}", err);
-                }
+        // Collect all alignment scores from all precursors
+        let mut all_scores = Vec::new();
+        for alignment_result in results.values() {
+            for run_scores in alignment_result.alignment_scores.values() {
+                all_scores.push(run_scores);
             }
-            if !self.parameters.disable_progress_bar {
-                progress.as_ref().expect("The Progess tqdm logger is not enabled").inc();
+    
+            // Update progress if enabled
+            if let Some(pb) = &mut progress {
+                pb.inc();
             }
         }
     
-        // Insert any remaining records
-        if !batch.is_empty() {
+        // Write all scores to each database
+        if !all_scores.is_empty() {
             for osw_access in feature_access {
-                log::debug!("Inserting remaining batch of {} full trace aligned features and scores", batch.len());
-                osw_access.insert_feature_alignment_batch(&batch)?;
+                log::debug!(
+                    "Inserting {} full trace aligned features and scores",
+                    all_scores.len()
+                );
+                osw_access.insert_feature_alignment_batch(&all_scores)?;
             }
         }
     
@@ -752,111 +1062,84 @@ impl Runner {
 
     fn write_ms2_alignment_results_to_db(
         &self,
-        feature_access: &Vec<OswAccess>,
-        results: &Vec<Result<HashMap<i32, PrecursorAlignmentResult>, ArycalError>>, 
+        feature_access: &[OswAccess],
+        results: &HashMap<i32, PrecursorAlignmentResult>,
     ) -> Result<()> {
-        let mut batch = Vec::new();
-        let batch_size = 1000; 
-    
-        let mut progress = None;
-        if !self.parameters.disable_progress_bar {
-            progress = Some(Progress::new(
+        // Initialize progress bar if enabled
+        let mut progress = if !self.parameters.disable_progress_bar {
+            Some(Progress::new(
                 results.len(),
                 "[arycal] Writing FEATURE_MS2_ALIGNMENT table to the database",
-            ));
-        }
+            ))
+        } else {
+            None
+        };
     
-        for result in results.iter() { // Iterate by reference
-            match result {
-                Ok(precursor_alignments) => {
-                    for (_, run_alignments) in precursor_alignments {
-                        for (_, peak_mappings) in &run_alignments.detecting_peak_mappings {
-                            batch.extend(peak_mappings.iter().cloned()); // Clone values to avoid moving ownership
-                        }
-                    }
-    
-                    // Insert in batches for better performance
-                    if batch.len() >= batch_size {
-                        for osw_access in feature_access {
-                            log::debug!("Inserting batch of {} of {} ms2 aligned features and scores", batch.len(), results.len());
-                            osw_access.insert_feature_ms2_alignment_batch(&batch)?;
-                        }
-                        batch.clear();
-                    }
-                }
-                Err(err) => {
-                    log::warn!("[arycal::write_ms2_alignment_results_to_db] Skipping result due to error: {:?}", err);
-                }
+        // Collect all MS2 alignment results
+        let mut all_ms2_alignments = Vec::new();
+        for alignment_result in results.values() {
+            for run_alignments in alignment_result.detecting_peak_mappings.values() {
+                all_ms2_alignments.extend(run_alignments.iter().cloned());
             }
-            if !self.parameters.disable_progress_bar {
-                progress.as_ref().expect("The Progess tqdm logger is not enabled").inc();
+    
+            // Update progress if enabled
+            if let Some(pb) = &mut progress {
+                pb.inc();
             }
         }
     
-        // Insert any remaining records
-        if !batch.is_empty() {
+        // Write all alignments to each database
+        if !all_ms2_alignments.is_empty() {
             for osw_access in feature_access {
-                log::debug!("Inserting remaining batch of {} ms2 aligned features and scores", batch.len());
-                osw_access.insert_feature_ms2_alignment_batch(&batch)?;
+                log::debug!(
+                    "Inserting {} MS2 aligned features",
+                    all_ms2_alignments.len()
+                );
+                osw_access.insert_feature_ms2_alignment_batch(&all_ms2_alignments)?;
             }
         }
     
         Ok(())
     }
-    
-    
 
     fn write_transition_alignment_results_to_db(
         &self,
-        feature_access: &Vec<OswAccess>,
-        results: &Vec<Result<HashMap<i32, PrecursorAlignmentResult>, ArycalError>>, 
+        feature_access: &[OswAccess],
+        results: &HashMap<i32, PrecursorAlignmentResult>,
     ) -> Result<()> {
-        let mut batch = Vec::new();
-        let batch_size = 1000; 
-        
-        let mut progress: Option<Progress> = None;
-        if !self.parameters.disable_progress_bar {
-            progress = Some(Progress::new(
+        // Initialize progress bar if enabled
+        let mut progress = if !self.parameters.disable_progress_bar {
+            Some(Progress::new(
                 results.len(),
                 "[arycal] Writing FEATURE_TRANSITION_ALIGNMENT table to the database",
-            ));
-        }   
+            ))
+        } else {
+            None
+        };
     
-        for result in results.iter() { // Iterate by reference
-            match result {
-                Ok(precursor_alignments) => {
-                    for (_, run_alignments) in precursor_alignments {
-                        for (_, peak_mappings) in &run_alignments.identifying_peak_mapping_scores {
-                            batch.extend(peak_mappings.iter().cloned()); // Clone values to avoid moving ownership
-                        }
-                    }
-    
-                    // Insert in batches for better performance
-                    if batch.len() >= batch_size {
-                        for osw_access in feature_access {
-                            log::debug!("Inserting batch of {} of {} transition aligned features and scores", batch.len(), results.len());
-                            osw_access.insert_feature_transition_alignment_batch(&batch)?;
-                        }
-                        batch.clear();
-                    }
-                }
-                Err(err) => {
-                    log::warn!(
-                        "[arycal::write_transition_alignment_results_to_db] Skipping transition alignment result due to error: {:?}",
-                        err
-                    );
+        // Collect all transition alignment results
+        let mut all_transition_alignments = Vec::new();
+        for alignment_result in results.values() {
+            if let transition_scores = &alignment_result.identifying_peak_mapping_scores {
+                for run_scores in transition_scores.values() {
+                    all_transition_alignments.extend(run_scores.iter().cloned());
                 }
             }
-            if !self.parameters.disable_progress_bar {
-                progress.as_ref().expect("The Progess tqdm logger is not enabled").inc();
+    
+            // Update progress if enabled
+            if let Some(pb) = &mut progress {
+                pb.inc();
             }
         }
     
-        // Insert any remaining records
-        if !batch.is_empty() {
+        // Write all transition alignments to each database
+        if !all_transition_alignments.is_empty() {
             for osw_access in feature_access {
-                log::debug!("Inserting remaining batch of {} transition aligned features and scores", batch.len());
-                osw_access.insert_feature_transition_alignment_batch(&batch)?;
+                log::debug!(
+                    "Inserting {} transition aligned features",
+                    all_transition_alignments.len()
+                );
+                osw_access.insert_feature_transition_alignment_batch(&all_transition_alignments)?;
             }
         }
     
