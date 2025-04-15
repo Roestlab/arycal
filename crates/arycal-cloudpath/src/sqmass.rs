@@ -205,6 +205,14 @@ impl SqMassAccess {
             .get()
             .map_err(|e| SqMassSqliteError::DatabaseError(e.to_string()))?;
 
+        // Insert indices if not already present
+        conn.execute_batch(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_chromatogram_native_id ON CHROMATOGRAM(NATIVE_ID);
+            CREATE INDEX IF NOT EXISTS idx_data_chromatogram_id ON DATA(CHROMATOGRAM_ID);
+            "#,
+        )?;
+
         let placeholders = filter_values
             .iter()
             .map(|id| format!("'{}'", id))
