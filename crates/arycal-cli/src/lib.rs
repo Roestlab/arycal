@@ -753,12 +753,12 @@ impl Runner {
         let start_time = Instant::now();
         let chromatograms: Vec<_> = self
             .xic_access
-            .iter()
+            .par_iter()
             .map(|access| {
                 access.read_chromatograms("NATIVE_ID", native_ids_str.clone(), group_id.clone())
             })
             .collect::<Result<Vec<_>, _>>()?;
-        log::debug!("XIC extraction took: {:?}", start_time.elapsed());
+        log::trace!("XIC extraction took: {:?}", start_time.elapsed());
 
         // Validate chromatograms
         if chromatograms[0].chromatograms.iter().map(|c| c.1.intensities.len()).sum::<usize>() < 10 {
@@ -778,10 +778,10 @@ impl Runner {
 
         // Process chromatograms
         let start_time = Instant::now();
-        let tics: Vec<_> = chromatograms.iter().map(|c| c.calculate_tic()).collect();
+        let tics: Vec<_> = chromatograms.par_iter().map(|c| c.calculate_tic()).collect();
         let common_rt_space = create_common_rt_space(tics);
         let smoothed_tics = common_rt_space
-            .iter()
+            .par_iter()
             .map(|tic| {
                 tic.smooth_sgolay(
                     self.parameters.alignment.smoothing.sgolay_window,
@@ -790,7 +790,7 @@ impl Runner {
                 .normalize()
             })
             .collect::<Result<Vec<_>, _>>()?;
-        log::debug!("TIC processing took: {:?}", start_time.elapsed());
+        log::trace!("TIC processing took: {:?}", start_time.elapsed());
 
         Ok(PrecursorXics {
             precursor_id: precursor.precursor_id,
