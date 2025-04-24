@@ -122,8 +122,6 @@ pub struct SmoothingConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AlignmentConfig {
-    /// Precursor threads. This is the number of precursors to process in parallel.
-    pub precursor_threads: Option<usize>,
     /// Batch size of precursors to process before writing results to disk.
     pub batch_size: Option<usize>,
     /// Method to use for alignment. Current options are "FFT", "DTW", "FFTDTW"
@@ -153,9 +151,8 @@ pub struct AlignmentConfig {
 impl Default for AlignmentConfig {
     fn default() -> Self {
         AlignmentConfig {
-            precursor_threads: Some(30),
-            batch_size: Some(500),
-            method: "fft_dtw".to_string(),
+            batch_size: Some(1000),
+            method: "fftdtw".to_string(),
             reference_type: "star".to_string(),
             reference_run: None,
             use_tic: true,

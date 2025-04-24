@@ -102,11 +102,9 @@ impl Runner {
     
         let precursor_map = &self.precursor_map;
         let total_count = precursor_map.len();
-        let precursor_threads = self.parameters.alignment.precursor_threads.unwrap_or(rayon::max_num_threads() - 4);
         let batch_size = self.parameters.alignment.batch_size.unwrap_or(500);
         let global_start = Instant::now();
     
-        // log::info!("Will align {} precursors in parallel at a time", precursor_threads);
         log::info!("Starting alignment for {} precursors", total_count);
     
         let feature_access = if let Some(scores_output_file) = &self.parameters.alignment.scores_output_file {
@@ -141,18 +139,6 @@ impl Runner {
     
             // Slice the batch
             let batch = &precursor_map[start_idx..end_idx];
-    
-            // let results: Vec<_> = rayon::ThreadPoolBuilder::new()
-            //     .num_threads(precursor_threads)
-            //     .build()?
-            //     .install(|| {
-            //         batch.par_iter()
-            //             .map(|precursor| {
-            //                 self.process_precursor(precursor)
-            //                     .map_err(|e| ArycalError::Custom(e.to_string()))
-            //             })
-            //             .collect()
-            //     });
 
             // Step 1: Extract all XICs for the batch
             let start_time = Instant::now();
