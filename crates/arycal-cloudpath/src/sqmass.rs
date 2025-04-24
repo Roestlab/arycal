@@ -175,10 +175,30 @@ impl SqMassAccess {
         let pool =
             Pool::new(manager).map_err(|e| SqMassSqliteError::DatabaseError(e.to_string()))?;
 
+        // Create the database indices if they don't exist
+        Self::create_indices(&pool)?;
+
         Ok(SqMassAccess {
             file: db_path.to_string(),
             pool,
         })
+    }
+
+    pub fn create_indices(pool: &Pool<SqliteConnectionManager>) -> Result<(), SqMassSqliteError> {
+        // Get a connection from the pool
+        let conn = pool
+            .get()
+            .map_err(|e| SqMassSqliteError::DatabaseError(e.to_string()))?;
+
+        // Create indices for the CHROMATOGRAM and DATA tables
+        conn.execute_batch(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_chromatogram_native_id ON CHROMATOGRAM(NATIVE_ID);
+            CREATE INDEX IF NOT EXISTS idx_data_chromatogram_id ON DATA(CHROMATOGRAM_ID);
+            "#,
+        )?;
+
+        Ok(())
     }
 
     /// Reads chromatograms from the database based on specified filter criteria.
@@ -204,14 +224,6 @@ impl SqMassAccess {
             .pool
             .get()
             .map_err(|e| SqMassSqliteError::DatabaseError(e.to_string()))?;
-
-        // Insert indices if not already present
-        conn.execute_batch(
-            r#"
-            CREATE INDEX IF NOT EXISTS idx_chromatogram_native_id ON CHROMATOGRAM(NATIVE_ID);
-            CREATE INDEX IF NOT EXISTS idx_data_chromatogram_id ON DATA(CHROMATOGRAM_ID);
-            "#,
-        )?;
 
         let placeholders = filter_values
             .iter()
