@@ -98,9 +98,9 @@ Remove the comments before running the configuration file.
     ]
   },
   "filters": {
-    # Whether to include decoy precursor XICs to align as well
+    # Whether to include decoy precursor XICs to align as well (false means decoys are included)
     "decoy": false,
-    # Whether to aligned and score identifying transitions
+    # Whether to align and score identifying transitions
     "include_identifying_transitions": false,
     # A TSV file (with header) to filter for precursor ids to align
     "precursor_ids": null,
