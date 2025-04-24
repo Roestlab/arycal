@@ -4,11 +4,12 @@ use std::collections::BTreeSet;
 use ordered_float::OrderedFloat;
 use savgol_rs::{savgol_filter, SavGolInput};
 use serde::{Serialize, Deserialize};
+use deepsize::DeepSizeOf;
 
 
 
 /// Represents a chromatogram with its associated data.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, DeepSizeOf)]
 pub struct Chromatogram {
     /// Unique identifier for the chromatogram.
     pub id: i32,
@@ -267,7 +268,7 @@ pub fn pad_chromatograms(chromatograms: Vec<Chromatogram>) -> Vec<Chromatogram> 
 
 
 /// Represents the mapping of peaks across chromatograms.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, DeepSizeOf)]
 pub struct AlignedChromatogram {
     /// Aligned chromatogram
     pub chromatogram: Chromatogram,

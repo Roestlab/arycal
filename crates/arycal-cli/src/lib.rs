@@ -12,9 +12,8 @@ use std::collections::HashMap;
 use std::time::Instant;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::alloc;
-use cap::Cap;
 use sysinfo::System;
+use deepsize::DeepSizeOf;
 
 use arycal_cloudpath::{
     tsv::load_precursor_ids_from_tsv,
@@ -59,10 +58,11 @@ impl Runner {
         let run_time = (Instant::now() - start_io).as_millis();
 
         info!(
-            "Loaded {} target precursors and {} decoy precursors identifiers - took {}ms",
+            "Loaded {} target precursors and {} decoy precursors identifiers - took {}ms ({} MiB)",
             precursor_map.iter().filter(|v| !v.decoy).count(),
             precursor_map.iter().filter(|v| v.decoy).count(),
-            run_time
+            run_time,
+            precursor_map.iter().map(|v| v.deep_size_of()).sum::<usize>() / 1024 / 1024
         );
 
         let xic_accessors: Result<Vec<SqMassAccess>, anyhow::Error> = parameters
@@ -84,15 +84,21 @@ impl Runner {
 
     #[cfg(not(feature = "mpi"))]
     pub fn run(&mut self) -> anyhow::Result<()> {
-        #[global_allocator]
-        static ALLOCATOR: Cap<alloc::System> = Cap::new(alloc::System, usize::max_value());
-
         let mut system = sysinfo::System::new_all();
         system.refresh_all();
         let total_memory = system.total_memory();
         let starting_memory = system.used_memory();
 
-        log::debug!("{}", self.parameters.alignment);
+        log::debug!("System name:             {:?}", System::name());
+        log::debug!("System kernel version:   {:?}", System::kernel_version());
+        log::debug!("System OS version:       {:?}", System::os_version());
+        log::debug!("System host name:        {:?}", System::host_name());
+
+        log::info!("Total memory: {} GiB", total_memory / 1024 / 1024 / 1024);
+        log::info!("Used memory: {} GiB", starting_memory / 1024 / 1024 / 1024);
+        log::debug!("Total swap: {} GiB", system.total_swap() / 1024 / 1024 / 1024);
+        log::debug!("Used swap: {} GiB", system.used_swap() / 1024 / 1024 / 1024);
+        log::info!("System CPU count: {}", system.cpus().len());
     
         let precursor_map = &self.precursor_map;
         let total_count = precursor_map.len();
@@ -151,17 +157,17 @@ impl Runner {
             // Step 1: Extract all XICs for the batch
             let start_time = Instant::now();
             let xics_batch = self.prepare_xics_batch(batch)?;
-            log::debug!("XIC extraction for batch of {} precursors took: {:?}", batch.len(), start_time.elapsed());
+            log::debug!("XIC extraction for batch of {} precursors took: {:?} ({} MiB)", batch.len(), start_time.elapsed(), xics_batch.deep_size_of() / 1024 / 1024);
 
             // Step 2: Align all TICs for the batch
             let start_time = Instant::now();
             let aligned_batch = self.align_tics_batch(&xics_batch)?;
-            log::debug!("TIC alignment for batch of {} precursors took: {:?}", batch.len(), start_time.elapsed());
+            log::debug!("TIC alignment for batch of {} precursors took: {:?} ({} MiB)", batch.len(), start_time.elapsed(), aligned_batch.deep_size_of() / 1024 / 1024);
 
             // Step 3: Process all peak mappings for the batch
             let start_time = Instant::now();
             let results: HashMap<i32, PrecursorAlignmentResult> = self.process_peak_mappings_batch(&aligned_batch, batch)?;
-            log::debug!("Peak mapping and scoring for batch of {} precursors took: {:?}", batch.len(), start_time.elapsed());
+            log::debug!("Peak mapping and scoring for batch of {} precursors took: {:?} ({} MiB)", batch.len(), start_time.elapsed(), results.deep_size_of() / 1024 / 1024);
     
             // Write results for this batch
             if self.parameters.alignment.compute_scores.unwrap_or_default() {
@@ -177,13 +183,15 @@ impl Runner {
     
             let elapsed = batch_start_time.elapsed();
             log::info!(
-                "Batch {}-{} processed in {:.2?} ({:.2}/min) - {} MiB / {} GiB",
+                "Batch {}-{} processed in {:.2?} ({:.2}/min) - {} MiB ({}%)",
                 start_idx,
                 end_idx,
                 elapsed,
                 ((end_idx - start_idx) as f64 / (elapsed.as_secs_f64() / 60.0)).floor(),
-                ALLOCATOR.allocated() / 1024 / 1024,
-                total_memory / 1024 / 1024 / 1024
+                // Add up the size of xics_batch + aligned_batch + results
+                ( xics_batch.deep_size_of() + aligned_batch.deep_size_of() + results.deep_size_of() ) / 1024 / 1024,
+                ( (xics_batch.deep_size_of() + aligned_batch.deep_size_of() + results.deep_size_of()) as f64 / total_memory as f64 * 100.0
+                ).floor()
             );
     
             start_idx += batch_size;

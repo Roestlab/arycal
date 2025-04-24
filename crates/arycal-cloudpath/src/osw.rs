@@ -6,6 +6,7 @@ use std::{collections::HashMap, time::Duration};
 use std::error::Error;
 use std::fmt;
 use std::path::Path;
+use deepsize::DeepSizeOf;
 
 use arycal_common::{AlignedTransitionScores, FullTraceAlignmentScores, PeakMapping};
 
@@ -178,7 +179,7 @@ impl FeatureData {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, DeepSizeOf )]
 pub struct PrecursorIdData {
     pub precursor_id: i32,
     pub unmodified_sequence: String,

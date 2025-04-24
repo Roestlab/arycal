@@ -1,6 +1,7 @@
 
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
+use deepsize::DeepSizeOf;
 
 pub mod config;
 pub mod logging;
@@ -8,11 +9,7 @@ pub mod error;
 pub mod chromatogram;
 
 
-
-
-
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, DeepSizeOf)]
 pub struct PrecursorXics {
     pub precursor_id: i32,
     pub smoothed_tics: Vec<chromatogram::Chromatogram>,
@@ -22,7 +19,7 @@ pub struct PrecursorXics {
 }
 
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, DeepSizeOf)]
 pub struct AlignedTics {
     pub precursor_id: i32,
     pub group_id: String,
@@ -30,7 +27,7 @@ pub struct AlignedTics {
     pub aligned_chromatograms: Vec<chromatogram::AlignedChromatogram>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, DeepSizeOf)]
 pub struct PeakMappingScores {
     pub precursor_id: i32,
     pub mapped_peaks: HashMap<String, Vec<PeakMapping>>,
@@ -40,7 +37,7 @@ pub struct PeakMappingScores {
 }
 
 /// Represents the result of the precursor alignment.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, DeepSizeOf)]
 pub struct PrecursorAlignmentResult {
     pub alignment_scores: HashMap<String, FullTraceAlignmentScores>,
     pub detecting_peak_mappings: HashMap<String, Vec<PeakMapping>>,
@@ -49,7 +46,7 @@ pub struct PrecursorAlignmentResult {
 
 
 /// Struct for the scores of the alignment of the full chromatogram.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, DeepSizeOf)]
 pub struct FullTraceAlignmentScores {
     /// reference filename
     pub reference_filename: String,
@@ -65,7 +62,7 @@ pub struct FullTraceAlignmentScores {
 }
 
 /// Represents the mapping of peaks across chromatograms.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, DeepSizeOf)]
 pub struct PeakMapping {
     /// Alignment ID to group the same peaks across runs.
     pub alignment_id: i64,
@@ -109,7 +106,7 @@ pub struct PeakMapping {
 
 
 /// Represents the scores for aligning peaks on the transition level.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, DeepSizeOf)]
 pub struct AlignedTransitionScores {
     /// Feature ID
     pub feature_id: i64,
