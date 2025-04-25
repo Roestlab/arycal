@@ -68,7 +68,7 @@ impl Runner {
         let xic_accessors: Result<Vec<SqMassAccess>, anyhow::Error> = parameters
             .xic
             .file_paths
-            .iter()
+            .par_iter()
             .map(|path| SqMassAccess::new(path.to_str().unwrap()).map_err(anyhow::Error::from))
             .collect();
 
