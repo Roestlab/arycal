@@ -12,6 +12,7 @@ use std::io::Read;
 
 use arycal_common::chromatogram::Chromatogram;
 use crate::msnumpress::{decode_linear, decode_slof};
+use crate::osw::PrecursorIdData;
 use crate::util::extract_basename;
 
 /// Create a type alias for the connection pool used for SQLite connections.
@@ -301,6 +302,106 @@ impl SqMassAccess {
         }
 
         Ok(transition_group)
+    }
+
+    pub fn read_chromatograms_for_precursors(
+        &self,
+        precursors: &[PrecursorIdData],
+        include_precursor: bool,
+        num_isotopes: usize,
+    ) -> Result<HashMap<i32, TransitionGroup>, SqMassSqliteError> {
+        // Collect all native IDs for all precursors
+        let mut all_native_ids = Vec::new();
+        let mut precursor_to_native_ids = HashMap::new();
+        
+        for precursor in precursors {
+            let native_ids = precursor.extract_native_ids_for_sqmass(include_precursor, num_isotopes);
+            precursor_to_native_ids.insert(precursor.precursor_id, native_ids.clone());
+            all_native_ids.extend(native_ids);
+        }
+    
+        // Get all chromatograms in one query
+        let placeholders = all_native_ids
+            .iter()
+            .map(|id| format!("'{}'", id))
+            .collect::<Vec<_>>()
+            .join(",");
+    
+        let query = format!(
+            "SELECT DATA.CHROMATOGRAM_ID, CHROMATOGRAM.NATIVE_ID, DATA.COMPRESSION, DATA.DATA_TYPE, DATA.DATA 
+             FROM DATA 
+             INNER JOIN CHROMATOGRAM ON CHROMATOGRAM.ID = DATA.CHROMATOGRAM_ID 
+             WHERE CHROMATOGRAM.NATIVE_ID IN ({})", 
+             placeholders
+        );
+    
+        let conn = self.pool.get().unwrap();
+        let mut stmt = conn.prepare(&query)?;
+    
+        // Process all results and group by precursor
+        let mut precursor_groups = HashMap::new();
+        
+        let rows = stmt.query_map([], |row| {
+            let id: i32 = row.get(0)?;
+            let native_id: String = row.get(1)?;
+            let compression: i32 = row.get(2)?;
+            let data_type: i32 = row.get(3)?;
+            let encoded_data: Vec<u8> = row.get(4)?;
+            
+            let decoded_data = decompress_data(&encoded_data, compression)?;
+            
+            Ok((id, native_id, decoded_data, data_type))
+        })?;
+    
+        for row in rows {
+            let (id, native_id, decoded_data, data_type) = row?;
+            
+            // Find which precursor this chromatogram belongs to
+            for (precursor_id, precursor_native_ids) in &precursor_to_native_ids {
+                if precursor_native_ids.contains(&native_id) {
+                    let group_id = format!("{}_{}", 
+                        precursors.iter().find(|p| p.precursor_id == *precursor_id)
+                            .map(|p| p.modified_sequence.clone())
+                            .unwrap_or_default(),
+                        precursors.iter().find(|p| p.precursor_id == *precursor_id)
+                            .map(|p| p.precursor_charge.to_string())
+                            .unwrap_or_default()
+                    );
+                    
+                    let group = precursor_groups.entry(*precursor_id)
+                        .or_insert_with(|| TransitionGroup {
+                            group_id: group_id.clone(),
+                            chromatograms: HashMap::new(),
+                            metadata: HashMap::new(),
+                        });
+                    
+                    let chrom = group.chromatograms.entry(native_id.clone())
+                        .or_insert_with(|| Chromatogram {
+                            id,
+                            native_id: native_id.clone(),
+                            retention_times: Vec::new(),
+                            intensities: Vec::new(),
+                            metadata: HashMap::new(),
+                        });
+                    
+                    match data_type {
+                        2 => chrom.retention_times = decoded_data,
+                        1 => chrom.intensities = decoded_data,
+                        _ => continue,
+                    }
+                    
+                    break;
+                }
+            }
+        }
+    
+        // Add metadata to each group
+        for group in precursor_groups.values_mut() {
+            group.metadata.insert("file".to_string(), self.file.to_string());
+            group.metadata.insert("basename".to_string(), extract_basename(&self.file));
+        }
+    
+        Ok(precursor_groups)
     }
 
     /// Extracts chromatogram IDs along with their corresponding peptides and charge states.

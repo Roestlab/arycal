@@ -9,7 +9,7 @@ use deepsize::DeepSizeOf;
 
 
 /// Represents a chromatogram with its associated data.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, DeepSizeOf)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, DeepSizeOf)]
 pub struct Chromatogram {
     /// Unique identifier for the chromatogram.
     pub id: i32,

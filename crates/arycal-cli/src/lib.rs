@@ -1,6 +1,7 @@
 pub mod input;
 pub mod output;
 
+use arycal_cloudpath::sqmass::TransitionGroup;
 #[cfg(feature = "mpi")]
 use mpi::traits::*;
 
@@ -706,30 +707,133 @@ impl Runner {
     }
 
 
-    // Extract XICs for a batch of precursors
     pub fn prepare_xics_batch(
         &self,
         precursors: &[PrecursorIdData],
     ) -> anyhow::Result<HashMap<i32, PrecursorXics>> {
-        precursors
+        // First read all chromatograms for all precursors across all files
+        let start_time = Instant::now();
+        
+        // Process each SQLite file in parallel
+        let all_precursor_groups: Vec<HashMap<i32, TransitionGroup>> = self.xic_access
+            .par_iter()
+            .map(|access| {
+                access.read_chromatograms_for_precursors(
+                    precursors,
+                    self.parameters.xic.include_precursor,
+                    self.parameters.xic.num_isotopes,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        
+        log::trace!("XIC extraction from all files took: {:?}", start_time.elapsed());
+    
+        // Then process each precursor's chromatograms
+        let start_time = Instant::now();
+        let xic_batch: Result<HashMap<_, _>, _> = precursors
             .par_iter()
             .filter_map(|precursor| {
-                match self.prepare_xics(precursor) {
-                    Ok(xics) if xics != PrecursorXics::default() => {
-                        Some(Ok((precursor.precursor_id, xics)))
-                    }
-                    Ok(_) => {
-                        log::trace!("Skipping precursor {} due to empty/default XICs", precursor.precursor_id);
-                        None
-                    }
-                    Err(e) => {
-                        log::warn!("Error processing precursor {}: {}", precursor.precursor_id, e);
-                        None
+                // Collect chromatograms for this precursor from all files
+                let mut chromatograms = Vec::new();
+                for precursor_groups in &all_precursor_groups {
+                    if let Some(group) = precursor_groups.get(&precursor.precursor_id) {
+                        chromatograms.push(group.clone());
                     }
                 }
+    
+                if chromatograms.is_empty() {
+                    log::trace!("No chromatograms found for precursor {}", precursor.precursor_id);
+                    return None;
+                }
+    
+                // Validate chromatograms
+                if chromatograms[0].chromatograms.values()
+                    .map(|c| c.intensities.len())
+                    .sum::<usize>() < 10 
+                {
+                    log::trace!("Skipping precursor {} - insufficient points (xic has less 10 data points)", precursor.precursor_id);
+                    return None;
+                }
+                
+                // Check for NaN values
+                for group in &chromatograms {
+                    for data in group.chromatograms.values() {
+                        if data.intensities.iter().any(|&x| x.is_nan()) || 
+                           data.retention_times.iter().any(|&x| x.is_nan()) {
+                            log::trace!("NaN values detected in chromatograms, skipping precursor with: {:?}", precursor.precursor_id);
+                            return None;
+                        }
+                    }
+                }
+        
+                // Process chromatograms
+                let tics: Vec<_> = chromatograms.par_iter().map(|c| c.calculate_tic()).collect();
+                let common_rt_space = create_common_rt_space(tics);
+                
+                // Handle smoothing errors gracefully
+                let smoothed_tics = match common_rt_space
+                    .par_iter()
+                    .map(|tic| {
+                        tic.smooth_sgolay(
+                            self.parameters.alignment.smoothing.sgolay_window,
+                            self.parameters.alignment.smoothing.sgolay_order,
+                        )
+                        .and_then(|t| t.normalize())
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+                {
+                    Ok(tics) => tics,
+                    Err(e) => {
+                        log::trace!(
+                            "Smoothing failed for precursor {}: {}. Skipping.",
+                            precursor.precursor_id,
+                            e
+                        );
+                        return None;
+                    }
+                };
+                
+                Some(Ok((precursor.precursor_id, PrecursorXics {
+                    precursor_id: precursor.precursor_id,
+                    smoothed_tics,
+                    common_rt_space: common_rt_space[0].retention_times.clone(),
+                    group_id: precursor.modified_sequence.clone() + "_" + &precursor.precursor_charge.to_string(),
+                    native_ids: precursor.extract_native_ids_for_sqmass(
+                        self.parameters.xic.include_precursor,
+                        self.parameters.xic.num_isotopes,
+                    ),
+                })))
             })
-            .collect()
+            .collect();
+        
+        log::trace!("TIC processing took: {:?}", start_time.elapsed());
+        xic_batch
     }
+
+    // // Extract XICs for a batch of precursors
+    // pub fn prepare_xics_batch(
+    //     &self,
+    //     precursors: &[PrecursorIdData],
+    // ) -> anyhow::Result<HashMap<i32, PrecursorXics>> {
+    //     precursors
+    //         .par_iter()
+    //         .filter_map(|precursor| {
+    //             match self.prepare_xics(precursor) {
+    //                 Ok(xics) if xics != PrecursorXics::default() => {
+    //                     Some(Ok((precursor.precursor_id, xics)))
+    //                 }
+    //                 Ok(_) => {
+    //                     log::trace!("Skipping precursor {} due to empty/default XICs", precursor.precursor_id);
+    //                     None
+    //                 }
+    //                 Err(e) => {
+    //                     log::warn!("Error processing precursor {}: {}", precursor.precursor_id, e);
+    //                     None
+    //                 }
+    //             }
+    //         })
+    //         .collect()
+    // }
 
     // Extract and process XICs for a single precursor
     fn prepare_xics(
