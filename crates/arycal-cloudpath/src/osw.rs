@@ -44,7 +44,7 @@ impl Error for OpenSwathSqliteError {}
 use std::ops::Deref;
 
 /// Define the ValueEntryType enum to store single or multiple values
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, DeepSizeOf )]
 pub enum ValueEntryType<T> {
     Single(T),
     Multiple(Vec<T>),
@@ -111,7 +111,7 @@ impl<T: Default> ValueEntryType<T> {
 }
 
 /// Struct to store feature data for a precursor in a single run i.e. identified peaks, and peak boundaries.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, DeepSizeOf )]
 pub struct FeatureData {
     pub filename: String,
     pub basename: String,

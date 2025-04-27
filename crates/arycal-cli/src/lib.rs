@@ -968,7 +968,7 @@ impl Runner {
         let start_time = Instant::now();
         let all_feature_data = self.feature_access[0]
             .fetch_feature_data_for_precursor_batch(&precursor_run_sets)?;
-        log::debug!("Fetching feature data for {:?} precursors for {:?} runs took: {:?}", precursor_run_sets.len(), precursor_run_sets.iter().map(|(_, runs)| runs.len()).sum::<usize>(), start_time.elapsed());
+        log::debug!("Fetching feature data for {:?} precursors for {:?} runs took: {:?} ({:?} MiB)", precursor_run_sets.len(), precursor_run_sets.iter().map(|(_, runs)| runs.len()).sum::<usize>(), start_time.elapsed(), all_feature_data.deep_size_of() / 1024 / 1024);
     
         // Create a lookup map from precursor_id to PrecursorIdData
         let precursor_map: HashMap<i32, &PrecursorIdData> = precursors
@@ -1046,6 +1046,7 @@ impl Runner {
                     return None;
                 }
 
+                let start_time = Instant::now();
                 let mapped_peaks = map_peaks_across_runs(
                     chrom,
                     ref_run_feat_data,
@@ -1053,6 +1054,7 @@ impl Runner {
                     self.parameters.alignment.rt_mapping_tolerance.unwrap_or_default(),
                     &self.parameters.alignment,
                 );
+                log::trace!("Peak mapping took: {:?}", start_time.elapsed());
 
                 Some((
                     chrom.chromatogram.metadata.get("basename").unwrap().to_string(),
