@@ -146,9 +146,9 @@ pub enum SqMassSqliteError {
 impl fmt::Display for SqMassSqliteError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SqMassSqliteError::DatabaseError(msg) => write!(f, "Database Error: {}", msg),
-            SqMassSqliteError::GeneralError(msg) => write!(f, "Error: {}", msg),
-            SqMassSqliteError::RusqliteError(err) => write!(f, "Rusqlite Error: {}", err),
+            SqMassSqliteError::DatabaseError(msg) => write!(f, "[SqMassSqliteError] Database Error: {}", msg),
+            SqMassSqliteError::GeneralError(msg) => write!(f, "[SqMassSqliteError] Error: {}", msg),
+            SqMassSqliteError::RusqliteError(err) => write!(f, "[SqMassSqliteError] Rusqlite Error: {}", err),
         }
     }
 }

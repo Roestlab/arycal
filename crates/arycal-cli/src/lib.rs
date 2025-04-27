@@ -47,7 +47,7 @@ impl Runner {
 
         // TODO: Currently only supports a single OSW file
         let start_io = Instant::now();
-        let osw_access = OswAccess::new(&parameters.features.file_paths[0].to_str().unwrap())?;
+        let osw_access = OswAccess::new(&parameters.features.file_paths[0].to_str().unwrap(), true)?;
 
         // Check if precursor_ids tsv file is provided
         let mut precursor_ids: Option<Vec<u32>> = None;
@@ -110,7 +110,7 @@ impl Runner {
     
         let feature_access = if let Some(scores_output_file) = &self.parameters.alignment.scores_output_file {
             let scores_output_file = scores_output_file.clone();
-            let osw_access = OswAccess::new(&scores_output_file)?;
+            let osw_access = OswAccess::new(&scores_output_file, false)?;
             vec![osw_access]
         } else {
             self.feature_access.clone()
@@ -979,6 +979,7 @@ impl Runner {
         aligned: &AlignedTics,
         precursor: &PrecursorIdData,
     ) -> anyhow::Result<PrecursorAlignmentResult> {
+        log::trace!("Fetching feature data for precursor: {:?}", precursor.precursor_id);
         // Fetch feature data
         let prec_feat_data = self.feature_access[0].fetch_full_precursor_feature_data_for_runs(
             aligned.precursor_id,
@@ -992,6 +993,7 @@ impl Runner {
         /* ------------------------------------------------------------------ */
         /* Aligned Peak Mapping                                       */
         /* ------------------------------------------------------------------ */
+        log::trace!("Mapping peaks for precursor: {:?} for {:?} aligned chromatograms", precursor.precursor_id, aligned.aligned_chromatograms.len());
         let peak_mapping_results: Vec<_> = aligned.aligned_chromatograms
             .par_iter()
             .filter_map(|chrom| {

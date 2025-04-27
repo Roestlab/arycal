@@ -22,10 +22,10 @@ pub enum OpenSwathSqliteError {
 impl fmt::Display for OpenSwathSqliteError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            OpenSwathSqliteError::DatabaseError(msg) => write!(f, "Database Error: {}", msg),
-            OpenSwathSqliteError::GeneralError(msg) => write!(f, "Error: {}", msg),
-            OpenSwathSqliteError::RusqliteError(err) => write!(f, "Rusqlite Error: {}", err),
-            OpenSwathSqliteError::NotFoundError(msg) => write!(f, "Not Found Error: {}", msg),
+            OpenSwathSqliteError::DatabaseError(msg) => write!(f, "[OpenSwathSqliteError] Database Error: {}", msg),
+            OpenSwathSqliteError::GeneralError(msg) => write!(f, "[OpenSwathSqliteError] Error: {}", msg),
+            OpenSwathSqliteError::RusqliteError(err) => write!(f, "[OpenSwathSqliteError] Rusqlite Error: {}", err),
+            OpenSwathSqliteError::NotFoundError(msg) => write!(f, "[OpenSwathSqliteError] Not Found Error: {}", msg),
         }
     }
 }
@@ -280,27 +280,125 @@ impl PrecursorIdData {
 #[derive(Clone)]
 pub struct OswAccess {
     pool: Pool<SqliteConnectionManager>,
+    run_table: HashMap<i64, String>,  // RUN_ID -> basename
+    filename_to_id: HashMap<String, i64>,  // basename -> RUN_ID
 }
 
 impl OswAccess {
     /// Constructor to create a new OswAccess instance with a connection pool
-    pub fn new(db_path: &str) -> Result<Self, OpenSwathSqliteError> {
-        let manager = SqliteConnectionManager::file(db_path)
-            .with_init(|conn| {
-                // Enable WAL mode for better concurrency
-                conn.pragma_update(None, "journal_mode", "WAL")?;
-                conn.pragma_update(None, "synchronous", "NORMAL")?;
-                Ok(())
-            });
+    /// 
+    /// # Parameters
+    /// - `db_path`: Path to the OSW database file
+    /// - `init_run_table`: Whether to initialize and cache the RUN table
+    pub fn new(db_path: &str, init_run_table: bool) -> Result<Self, OpenSwathSqliteError> {
+        let manager = SqliteConnectionManager::file(db_path);
         
-        let pool = Pool::builder()
-            .max_size(30)  
-            .min_idle(Some(15))  
-            .connection_timeout(Duration::from_secs(120))  
-            .build(manager)
+        let pool = Pool::new(manager)
             .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
 
-        Ok(OswAccess { pool })
+        // Ensure indexes exist
+        Self::ensure_indexes(&pool)?;
+
+        // Initialize run tables if requested
+        let (run_table, filename_to_id) = if init_run_table {
+            Self::load_run_table(&pool).unwrap_or_else(|e| {
+                log::warn!("Failed to load RUN table: {}. Using empty tables.", e);
+                (HashMap::new(), HashMap::new())
+            })
+        } else {
+            (HashMap::new(), HashMap::new())
+        };
+
+        Ok(OswAccess {
+            pool,
+            run_table,
+            filename_to_id,
+        })
+    }
+
+    /// Verify or create necessary indexes
+    fn ensure_indexes(pool: &Pool<SqliteConnectionManager>) -> Result<(), OpenSwathSqliteError> {
+        let conn = pool.get().map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+        
+        // Check which tables exist
+        let existing_tables: Vec<String> = conn
+        .prepare("SELECT name FROM sqlite_master WHERE type='table'")?
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+
+        // Create indexes only for existing tables
+        let mut index_queries = Vec::new();
+
+        if existing_tables.iter().any(|t| t == "FEATURE") {
+            index_queries.push("CREATE INDEX IF NOT EXISTS idx_feature_precursor_id ON FEATURE(PRECURSOR_ID)");
+            index_queries.push("CREATE INDEX IF NOT EXISTS idx_feature_run_id ON FEATURE(RUN_ID)");
+        }
+
+        if existing_tables.iter().any(|t| t == "FEATURE_MS2") {
+            index_queries.push("CREATE INDEX IF NOT EXISTS idx_feature_ms2_feature_id ON FEATURE_MS2(FEATURE_ID)");
+        }
+
+        if existing_tables.iter().any(|t| t == "SCORE_MS2") {
+            index_queries.push("CREATE INDEX IF NOT EXISTS idx_score_ms2_feature_id ON SCORE_MS2(FEATURE_ID)");
+        }
+
+        // Execute all index creation queries in a transaction
+        let tx = conn.unchecked_transaction()?;
+        for query in index_queries {
+            if let Err(e) = tx.execute(query, []) {
+                log::warn!("Failed to create index: {} - {}", query, e);
+            }
+        }
+        tx.commit()?;
+        
+        Ok(())
+    }
+
+    /// Loads the RUN table into memory
+    fn load_run_table(pool: &Pool<SqliteConnectionManager>) -> Result<(HashMap<i64, String>, HashMap<String, i64>), OpenSwathSqliteError> {
+        let conn = pool.get()
+            .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+
+        let query = "SELECT ID, FILENAME FROM RUN";
+        let mut stmt = conn.prepare(query)?;
+
+        let mut run_table = HashMap::new();
+        let mut filename_to_id = HashMap::new();
+
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+
+        for row in rows {
+            let (id, filename) = row?;
+            let basename = Path::new(&filename)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or(&filename)
+                .to_string();
+            
+            // Handle cases where file_stem() might still have extension (like .gz)
+            let basename = if basename.ends_with(".mzML") {
+                basename.trim_end_matches(".mzML").to_string()
+            } else {
+                basename
+            };
+
+            run_table.insert(id, basename.clone());
+            filename_to_id.insert(basename, id);
+        }
+
+        log::trace!("Loaded RUN table with {} entries", run_table.len());
+
+        Ok((run_table, filename_to_id))
+    }
+
+    /// Get RUN_IDs for given basenames
+    fn get_run_ids(&self, basenames: &[String]) -> Vec<i64> {
+        basenames.iter()
+            .filter_map(|name| self.filename_to_id.get(name))
+            .copied()
+            .collect()
     }
 
     /// Method to fetch precursor id and detecting transition id data from the OSW database
@@ -803,6 +901,10 @@ impl OswAccess {
             .get()
             .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
 
+        // Convert basenames to RUN_IDs
+        let run_ids = self.get_run_ids(&runs);
+        log::trace!("RUN_IDs: {:?}", run_ids);
+
         // Start building the SQL query
         let mut sql_query = r#"
             SELECT 
@@ -851,23 +953,28 @@ impl OswAccess {
         "#,
         );
 
-        // Add filter for specific runs
-        if !runs.is_empty() {
-            let run_filter: Vec<String> = runs
-                .iter()
-                .map(|run| format!("FILENAME LIKE \"%{}%\"", run))
-                .collect();
-
-            sql_query.push_str(&format!(" AND ({})", run_filter.join(" OR ")));
+        // Add filter for specific runs using RUN_IDs
+        if !run_ids.is_empty() {
+            let placeholders = run_ids.iter()
+                .map(|_| "?")
+                .collect::<Vec<_>>()
+                .join(",");
+            sql_query.push_str(&format!(" AND RUN.ID IN ({})", placeholders));
         }
 
         // Order by EXP_RT
         sql_query.push_str(" ORDER BY FILENAME, EXP_RT");
 
+        log::trace!("SQL Query: {}", sql_query);
+
         // Prepare and execute the SQL query
         let mut stmt = conn
             .prepare(&sql_query)
             .map_err(OpenSwathSqliteError::from)?;
+
+        // Build parameters - precursor_id first, then run_ids
+        let mut params = vec![rusqlite::types::Value::from(precursor_id)];
+        params.extend(run_ids.iter().map(|&id| rusqlite::types::Value::from(id)));
 
         // log::debug!("SQL Query: {}", sql_query);
 
@@ -884,7 +991,7 @@ impl OswAccess {
             Option<i32>,
             Option<f64>,
         )> = stmt
-            .query_map(params![precursor_id], |row| {
+            .query_map(rusqlite::params_from_iter(params.iter()), |row| {  // Use params_from_iter
                 let filename: String = row.get(0)?;
                 let run_id: i64 = row.get(1)?;
                 let precursor_id: i32 = row.get(2)?;
@@ -906,6 +1013,7 @@ impl OswAccess {
                 } else {
                     None
                 };
+                
                 Ok((
                     filename,
                     run_id,
