@@ -3,6 +3,7 @@ use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, Connection, Error as RusqliteError, Result};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, time::Duration};
+use std::collections::HashSet;
 use std::error::Error;
 use std::fmt;
 use std::path::Path;
@@ -1096,6 +1097,197 @@ impl OswAccess {
         }
 
         Ok(feature_data_map.into_values().collect())
+    }
+
+    pub fn fetch_feature_data_for_precursor_batch(
+        &self,
+        precursor_run_sets: &[(i32, Vec<String>)],
+    ) -> Result<HashMap<i32, Vec<FeatureData>>, OpenSwathSqliteError> {
+        let conn = self.pool.get()
+            .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+        
+        // Get all unique precursor IDs
+        let precursor_ids: Vec<i32> = precursor_run_sets.iter()
+            .map(|(id, _)| *id)
+            .collect();
+    
+        // Get all unique run IDs
+        let all_runs: HashSet<String> = precursor_run_sets.iter()
+            .flat_map(|(_, runs)| runs.iter().cloned())
+            .collect();
+        let run_ids = self.get_run_ids(&all_runs.into_iter().collect::<Vec<_>>());
+    
+        // Build the query
+        let mut sql_query = r#"
+            SELECT 
+                FILENAME,
+                RUN.ID AS RUN_ID,
+                FEATURE.PRECURSOR_ID,
+                FEATURE.ID AS FEATURE_ID,
+                EXP_RT,
+                LEFT_WIDTH,
+                RIGHT_WIDTH,
+                FEATURE_MS2.AREA_INTENSITY AS INTENSITY
+        "#.to_string();
+    
+        // Check if SCORE_MS2 table exists
+        let score_ms2_exists = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='SCORE_MS2'",
+            params![],
+            |row| row.get(0),
+        ).unwrap_or(false);
+    
+        if score_ms2_exists {
+            sql_query.push_str(", SCORE_MS2.RANK, SCORE_MS2.QVALUE");
+        }
+    
+        sql_query.push_str(r#"
+            FROM FEATURE
+            INNER JOIN RUN ON RUN.ID = FEATURE.RUN_ID
+            INNER JOIN PRECURSOR ON PRECURSOR.ID = FEATURE.PRECURSOR_ID
+            INNER JOIN FEATURE_MS2 ON FEATURE_MS2.FEATURE_ID = FEATURE.ID
+        "#);
+    
+        if score_ms2_exists {
+            sql_query.push_str(" INNER JOIN SCORE_MS2 ON SCORE_MS2.FEATURE_ID = FEATURE.ID");
+        }
+    
+        sql_query.push_str(" WHERE FEATURE.PRECURSOR_ID IN (");
+        sql_query.push_str(&precursor_ids.iter().map(|_| "?").collect::<Vec<_>>().join(","));
+        sql_query.push_str(")");
+    
+        if !run_ids.is_empty() {
+            sql_query.push_str(" AND RUN.ID IN (");
+            sql_query.push_str(&run_ids.iter().map(|_| "?").collect::<Vec<_>>().join(","));
+            sql_query.push_str(")");
+        }
+    
+        sql_query.push_str(" ORDER BY FEATURE.PRECURSOR_ID, FILENAME, EXP_RT");
+    
+        // Prepare and execute
+        let mut stmt = conn.prepare(&sql_query)?;
+        
+        // Build parameters - precursor_ids first, then run_ids
+        let mut params: Vec<rusqlite::types::Value> = precursor_ids.iter()
+            .map(|&id| rusqlite::types::Value::from(id))
+            .collect();
+        params.extend(run_ids.iter().map(|&id| rusqlite::types::Value::from(id)));
+    
+        // Process results
+        let mut feature_data_map: HashMap<i32, HashMap<String, FeatureData>> = HashMap::new();
+        let rows = stmt.query_map(rusqlite::params_from_iter(params.iter()), |row| {
+            let filename: String = row.get(0)?;
+            let run_id: i64 = row.get(1)?;
+            let precursor_id: i32 = row.get(2)?;
+            let feature_id: i64 = row.get(3)?;
+            let exp_rt: f64 = row.get(4)?;
+            let left_width: f64 = row.get(5)?;
+            let right_width: f64 = row.get(6)?;
+            let intensity: f64 = row.get(7)?;
+    
+            // Optional fields (if SCORE_MS2 exists)
+            let rank_option = if score_ms2_exists {
+                Some(row.get::<_, i32>(8)?)
+            } else {
+                None
+            };
+    
+            let qvalue_option = if score_ms2_exists {
+                Some(row.get::<_, f64>(9)?)
+            } else {
+                None
+            };
+            
+            Ok((
+                precursor_id,
+                filename,
+                run_id,
+                feature_id,
+                exp_rt,
+                left_width,
+                right_width,
+                intensity,
+                rank_option,
+                qvalue_option,
+            ))
+        })?;
+    
+        for row in rows {
+            let (
+                precursor_id,
+                filename,
+                run_id,
+                feature_id,
+                exp_rt,
+                left_width,
+                right_width,
+                intensity,
+                rank_option,
+                qvalue_option,
+            ) = row?;
+            
+            // Get or create the precursor's feature data map
+            let precursor_data = feature_data_map.entry(precursor_id)
+                .or_default();
+            
+            // Get or create the FeatureData for this filename
+            let feature_data = precursor_data.entry(filename.clone())
+                .or_insert_with(|| FeatureData::new(
+                    filename,
+                    run_id,
+                    precursor_id,
+                    Some(ValueEntryType::Multiple(vec![])),
+                    ValueEntryType::Multiple(vec![]),
+                    Some(ValueEntryType::Multiple(vec![])),
+                    Some(ValueEntryType::Multiple(vec![])),
+                    Some(ValueEntryType::Multiple(vec![])),
+                    Some(ValueEntryType::Multiple(vec![])),
+                    Some(ValueEntryType::Multiple(vec![])),
+                    Some(ValueEntryType::Multiple(vec![])),
+                ));
+    
+            // Push values into their respective vectors
+            if let Some(ValueEntryType::Multiple(ref mut ids)) = feature_data.feature_id {
+                ids.push(feature_id);
+            }
+    
+            if let ValueEntryType::Multiple(ref mut exps) = feature_data.exp_rt {
+                exps.push(exp_rt);
+            }
+    
+            if let Some(ValueEntryType::Multiple(ref mut widths)) = feature_data.left_width {
+                widths.push(left_width);
+            }
+    
+            if let Some(ValueEntryType::Multiple(ref mut widths)) = feature_data.right_width {
+                widths.push(right_width);
+            }
+    
+            if let Some(ValueEntryType::Multiple(ref mut intensities)) = feature_data.intensity {
+                intensities.push(intensity);
+            }
+    
+            if let Some(ValueEntryType::Multiple(ref mut ranks)) = feature_data.rank {
+                if let Some(rank) = rank_option {
+                    ranks.push(rank);
+                }
+            }
+    
+            if let Some(ValueEntryType::Multiple(ref mut qvalues)) = feature_data.qvalue {
+                if let Some(qvalue) = qvalue_option {
+                    qvalues.push(qvalue);
+                }
+            }
+        }
+    
+        // Convert to the final HashMap<i32, Vec<FeatureData>> structure
+        let result = feature_data_map.into_iter()
+            .map(|(precursor_id, data_map)| {
+                (precursor_id, data_map.into_values().collect())
+            })
+            .collect();
+    
+        Ok(result)
     }
 
     /// Create the FEATURE_ALIGNMENT table if it doesn't exist

@@ -30,6 +30,7 @@ use arycal_core::{
     alignment::fast_fourier_lag_dtw::star_align_tics_fft_with_local_refinement,
     scoring::{create_decoy_peaks_by_random_regions, create_decoy_peaks_by_shuffling},
 };
+use arycal_cloudpath::osw::FeatureData;
 use input::Input; 
 
 pub struct Runner {
@@ -953,21 +954,39 @@ impl Runner {
         aligned_batch: &HashMap<i32, AlignedTics>,
         precursors: &[PrecursorIdData],
     ) -> anyhow::Result<HashMap<i32, PrecursorAlignmentResult>> {
-        // Create a lookup map from precursor_id to PrecursorIdData for efficient access
+        // Get all precursor IDs and their run sets
+        let precursor_run_sets: Vec<(i32, Vec<String>)> = aligned_batch.iter()
+            .map(|(precursor_id, aligned)| {
+                let runs = aligned.aligned_chromatograms.iter()
+                    .map(|chrom| chrom.chromatogram.metadata.get("basename").unwrap().to_string())
+                    .collect();
+                (*precursor_id, runs)
+            })
+            .collect();
+    
+        // Fetch all feature data in one batch
+        let start_time = Instant::now();
+        let all_feature_data = self.feature_access[0]
+            .fetch_feature_data_for_precursor_batch(&precursor_run_sets)?;
+        log::debug!("Fetching feature data for {:?} precursors for {:?} runs took: {:?}", precursor_run_sets.len(), precursor_run_sets.iter().map(|(_, runs)| runs.len()).sum::<usize>(), start_time.elapsed());
+    
+        // Create a lookup map from precursor_id to PrecursorIdData
         let precursor_map: HashMap<i32, &PrecursorIdData> = precursors
             .iter()
             .map(|precursor| (precursor.precursor_id, precursor))
             .collect();
     
+        // Process each precursor with cached feature data
         aligned_batch
             .par_iter()
             .map(|(precursor_id, aligned)| {
-                // Look up the precursor data
                 let precursor = precursor_map.get(precursor_id)
                     .ok_or_else(|| anyhow::anyhow!("Precursor {} not found in batch", precursor_id))?;
     
-                // Process with both aligned data and precursor info
-                let mappings = self.process_peak_mappings(aligned, precursor)?;
+                let feature_data = all_feature_data.get(precursor_id)
+                    .ok_or_else(|| anyhow::anyhow!("Feature data not found for precursor {}", precursor_id))?;
+    
+                let mappings = self.process_peak_mappings(aligned, precursor, feature_data)?;
                 Ok((*precursor_id, mappings))
             })
             .collect()
@@ -978,17 +997,18 @@ impl Runner {
         &self,
         aligned: &AlignedTics,
         precursor: &PrecursorIdData,
+        prec_feat_data: &[FeatureData],
     ) -> anyhow::Result<PrecursorAlignmentResult> {
-        log::trace!("Fetching feature data for precursor: {:?}", precursor.precursor_id);
-        // Fetch feature data
-        let prec_feat_data = self.feature_access[0].fetch_full_precursor_feature_data_for_runs(
-            aligned.precursor_id,
-            aligned.aligned_chromatograms
-                .clone()
-                .iter()
-                .map(|chrom| chrom.chromatogram.metadata.get("basename").unwrap().to_string())
-                .collect(),
-        )?;
+        // log::trace!("Fetching feature data for precursor: {:?}", precursor.precursor_id);
+        // // Fetch feature data
+        // let prec_feat_data = self.feature_access[0].fetch_full_precursor_feature_data_for_runs(
+        //     aligned.precursor_id,
+        //     aligned.aligned_chromatograms
+        //         .clone()
+        //         .iter()
+        //         .map(|chrom| chrom.chromatogram.metadata.get("basename").unwrap().to_string())
+        //         .collect(),
+        // )?;
 
         /* ------------------------------------------------------------------ */
         /* Aligned Peak Mapping                                       */
