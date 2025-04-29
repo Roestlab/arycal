@@ -352,7 +352,7 @@ impl SqMassAccess {
              placeholders
         );
 
-        log::trace!("Query: {}", query);
+        // log::trace!("Query: {}", query);
     
         let conn = self.pool.get().map_err(|e| {
             SqMassSqliteError::DatabaseError(e.to_string())
