@@ -149,15 +149,17 @@ impl Runner {
             let start_time = Instant::now();
             let xics_batch = self.prepare_xics_batch(batch)?;
             log::debug!("XIC extraction for batch of {} precursors took: {:?} ({} MiB)", batch.len(), start_time.elapsed(), xics_batch.deep_size_of() / 1024 / 1024);
+            let xic_batch_size = xics_batch.deep_size_of();
 
             // Step 2: Align all TICs for the batch
             let start_time = Instant::now();
-            let aligned_batch = self.align_tics_batch(&xics_batch)?;
+            let aligned_batch = self.align_tics_batch(xics_batch)?;
             log::debug!("TIC alignment for batch of {} precursors took: {:?} ({} MiB)", batch.len(), start_time.elapsed(), aligned_batch.deep_size_of() / 1024 / 1024);
+            let aligned_batch_size = aligned_batch.deep_size_of();
 
             // Step 3: Process all peak mappings for the batch
             let start_time = Instant::now();
-            let results: HashMap<i32, PrecursorAlignmentResult> = self.process_peak_mappings_batch(&aligned_batch, batch)?;
+            let results: HashMap<i32, PrecursorAlignmentResult> = self.process_peak_mappings_batch(aligned_batch, batch)?;
             log::debug!("Peak mapping and scoring for batch of {} precursors took: {:?} ({} MiB)", batch.len(), start_time.elapsed(), results.deep_size_of() / 1024 / 1024);
     
             // Write results for this batch
@@ -180,8 +182,8 @@ impl Runner {
                 elapsed,
                 ((end_idx - start_idx) as f64 / (elapsed.as_secs_f64() / 60.0)).floor(),
                 // Add up the size of xics_batch + aligned_batch + results
-                ( xics_batch.deep_size_of() + aligned_batch.deep_size_of() + results.deep_size_of() ) / 1024 / 1024,
-                ( (xics_batch.deep_size_of() + aligned_batch.deep_size_of() + results.deep_size_of()) as f64 / total_memory as f64 * 100.0
+                ( xic_batch_size + aligned_batch_size + results.deep_size_of() ) / 1024 / 1024,
+                ( (xic_batch_size + aligned_batch_size + results.deep_size_of()) as f64 / total_memory as f64 * 100.0
                 ).floor()
             );
     
@@ -907,12 +909,14 @@ impl Runner {
     // Align TICs for a batch of precursors
     pub fn align_tics_batch(
         &self,
-        xics_batch: &HashMap<i32, PrecursorXics>,
+        xics_batch: HashMap<i32, PrecursorXics>,
     ) -> anyhow::Result<HashMap<i32, AlignedTics>> {
         xics_batch
             .par_iter()
             .map(|(precursor_id, xics)| {
+                let start_time = Instant::now();
                 let aligned = self.align_tics(xics)?;
+                log::trace!("Alignment for precursor {} took: {:?} ({:?} MiB)", precursor_id, start_time.elapsed(), aligned.deep_size_of() / 1024 / 1024);
                 Ok((*precursor_id, aligned))
             })
             .collect()
@@ -943,6 +947,7 @@ impl Runner {
             "fftdtw" => star_align_tics_fft_with_local_refinement(xics.smoothed_tics.clone(), &self.parameters.alignment)?,
             _ => star_align_tics(xics.smoothed_tics.clone(), &self.parameters.alignment)?,
         };
+        
 
         Ok(AlignedTics {
             precursor_id: xics.precursor_id,
@@ -955,7 +960,7 @@ impl Runner {
     // Process peak mappings for a batch
     pub fn process_peak_mappings_batch(
         &self,
-        aligned_batch: &HashMap<i32, AlignedTics>,
+        aligned_batch: HashMap<i32, AlignedTics>,
         precursors: &[PrecursorIdData],
     ) -> anyhow::Result<HashMap<i32, PrecursorAlignmentResult>> {
         // Get all precursor IDs and their run sets
@@ -982,18 +987,33 @@ impl Runner {
     
         // Process each precursor with cached feature data
         aligned_batch
-            .par_iter()
-            .map(|(precursor_id, aligned)| {
-                let precursor = precursor_map.get(precursor_id)
-                    .ok_or_else(|| anyhow::anyhow!("Precursor {} not found in batch", precursor_id))?;
-    
-                let feature_data = all_feature_data.get(precursor_id)
-                    .ok_or_else(|| anyhow::anyhow!("Feature data not found for precursor {}", precursor_id))?;
-    
-                let mappings = self.process_peak_mappings(aligned, precursor, feature_data)?;
-                Ok((*precursor_id, mappings))
-            })
-            .collect()
+        .par_iter()
+        .filter_map(|(precursor_id, aligned)| {
+            let precursor = match precursor_map.get(precursor_id) {
+                Some(p) => p,
+                None => {
+                    log::trace!("Precursor {} not found in batch", precursor_id);
+                    return None;
+                }
+            };
+
+            let feature_data = match all_feature_data.get(precursor_id) {
+                Some(f) => f,
+                None => {
+                    log::trace!("Feature data not found for precursor {}", precursor_id);
+                    return None;
+                }
+            };
+
+            match self.process_peak_mappings(aligned, precursor, feature_data) {
+                Ok(mappings) => Some(Ok((*precursor_id, mappings))),
+                Err(e) => {
+                    log::warn!("Failed to process peak mappings for precursor {}: {}", precursor_id, e);
+                    None
+                }
+            }
+        })
+        .collect()
     }
 
     // Process peak mappings for a single precursor
