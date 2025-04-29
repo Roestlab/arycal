@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 use std::io::Read;
+use rayon::prelude::*;
 
 use arycal_common::chromatogram::Chromatogram;
 use crate::msnumpress::{decode_linear, decode_slof};
@@ -165,18 +166,20 @@ impl Error for SqMassSqliteError {}
 
 /// Define the SqMassAccess struct
 pub struct SqMassAccess {
-    file: String,
+    pub file: String,
     pool: Pool<SqliteConnectionManager>,
 }
 
 impl SqMassAccess {
     /// Constructor to create a new SqMassAccess instance with a connection pool
     pub fn new(db_path: &str) -> Result<Self, SqMassSqliteError> {
+        log::trace!("Creating SqMassAccess instance with db_path: {}", db_path);
         let manager = SqliteConnectionManager::file(db_path);
         let pool =
             Pool::new(manager).map_err(|e| SqMassSqliteError::DatabaseError(e.to_string()))?;
 
         // Create the database indices if they don't exist
+        log::trace!("Creating indices for the database");
         Self::create_indices(&pool)?;
 
         Ok(SqMassAccess {
@@ -310,15 +313,29 @@ impl SqMassAccess {
         include_precursor: bool,
         num_isotopes: usize,
     ) -> Result<HashMap<i32, TransitionGroup>, SqMassSqliteError> {
-        // Collect all native IDs for all precursors
-        let mut all_native_ids = Vec::new();
-        let mut precursor_to_native_ids = HashMap::new();
-        
-        for precursor in precursors {
+        // Collect all native IDs for all precursors in parallel
+        let (all_native_ids, precursor_to_native_ids): (Vec<String>, HashMap<i32, Vec<String>>) = precursors
+        .par_iter()
+        .map(|precursor| {
             let native_ids = precursor.extract_native_ids_for_sqmass(include_precursor, num_isotopes);
-            precursor_to_native_ids.insert(precursor.precursor_id, native_ids.clone());
-            all_native_ids.extend(native_ids);
-        }
+            (precursor.precursor_id, native_ids)
+        })
+        .fold(
+            || (Vec::new(), HashMap::new()),
+            |(mut all_ids, mut prec_map), (prec_id, native_ids)| {
+                all_ids.extend(native_ids.clone());
+                prec_map.insert(prec_id, native_ids);
+                (all_ids, prec_map)
+            }
+        )
+        .reduce(
+            || (Vec::new(), HashMap::new()),
+            |(mut all_ids1, mut prec_map1), (all_ids2, prec_map2)| {
+                all_ids1.extend(all_ids2);
+                prec_map1.extend(prec_map2);
+                (all_ids1, prec_map1)
+            }
+        );
     
         // Get all chromatograms in one query
         let placeholders = all_native_ids
@@ -334,8 +351,12 @@ impl SqMassAccess {
              WHERE CHROMATOGRAM.NATIVE_ID IN ({})", 
              placeholders
         );
+
+        log::trace!("Query: {}", query);
     
-        let conn = self.pool.get().unwrap();
+        let conn = self.pool.get().map_err(|e| {
+            SqMassSqliteError::DatabaseError(e.to_string())
+        })?;
         let mut stmt = conn.prepare(&query)?;
     
         // Process all results and group by precursor

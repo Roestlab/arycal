@@ -4,8 +4,17 @@ use std::sync::{Arc, Mutex};
 use arycal_cli::input::Input; 
 use arycal_cli::Runner;
 
+use rlimit::{Resource, setrlimit};
+
+fn increase_limits() -> Result<(), anyhow::Error> {
+    // Increase file descriptor limit
+    setrlimit(Resource::NOFILE, 65536, 65536)?;
+    Ok(())
+}
 
 fn main() -> Result<()> {
+    increase_limits()?;
+    
     // Initialize logger
     env_logger::Builder::default()
         .filter_level(log::LevelFilter::Error)

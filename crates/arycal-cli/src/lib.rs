@@ -67,12 +67,15 @@ impl Runner {
             precursor_map.iter().map(|v| v.deep_size_of()).sum::<usize>() / 1024 / 1024
         );
 
+        let start_io = Instant::now();
         let xic_accessors: Result<Vec<SqMassAccess>, anyhow::Error> = parameters
             .xic
             .file_paths
             .par_iter()
+            .with_max_len(15) // Limit concurrent file operations
             .map(|path| SqMassAccess::new(path.to_str().unwrap()).map_err(anyhow::Error::from))
             .collect();
+        log::trace!("Creating {:?} XIC file accessors took: {:?}", &parameters.xic.file_paths.len(), start_io.elapsed());
 
         Ok(Self {
             precursor_map: precursor_map.clone(),
@@ -719,6 +722,7 @@ impl Runner {
         let all_precursor_groups: Vec<HashMap<i32, TransitionGroup>> = self.xic_access
             .par_iter()
             .map(|access| {
+                log::trace!("Reading chromatograms for file: {:?}", access.file);
                 access.read_chromatograms_for_precursors(
                     precursors,
                     self.parameters.xic.include_precursor,
