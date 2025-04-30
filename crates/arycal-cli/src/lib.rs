@@ -17,11 +17,14 @@ use sysinfo::System;
 use deepsize::DeepSizeOf;
 
 use arycal_cloudpath::{
+    ChromatogramReader,
     tsv::load_precursor_ids_from_tsv,
     osw::{OswAccess, PrecursorIdData},
     sqmass::SqMassAccess,
+    xic_parquet::DuckDBParquetChromatogramReader
 };
 use arycal_common::{logging::Progress, chromatogram::{Chromatogram, create_common_rt_space, AlignedChromatogram}, AlignedTransitionScores, error::ArycalError, PrecursorXics, AlignedTics, FullTraceAlignmentScores, PeakMapping, PrecursorAlignmentResult, PeakMappingScores};
+use arycal_common::config::XicFileType;
 use arycal_core::{alignment::{self, alignment::apply_post_alignment_to_trgrp, dynamic_time_warping::align_chromatograms, fast_fourier_lag::shift_chromatogram}, scoring::{compute_alignment_scores, compute_peak_mapping_scores, compute_peak_mapping_transitions_scores}};
 use arycal_core::{
     alignment::alignment::map_peaks_across_runs,
@@ -37,7 +40,7 @@ pub struct Runner {
     precursor_map: Vec<PrecursorIdData>,
     parameters: input::Input,
     feature_access: Vec<OswAccess>,
-    xic_access: Vec<SqMassAccess>,
+    xic_access: Vec<Box<dyn ChromatogramReader>>,
     start: Instant,
     progress_num: Option<Arc<Mutex<f32>>>, 
 }
@@ -68,20 +71,30 @@ impl Runner {
         );
 
         let start_io = Instant::now();
-        let xic_accessors: Result<Vec<SqMassAccess>, anyhow::Error> = parameters
+        let xic_accessors: Vec<Box<dyn ChromatogramReader>> = parameters
             .xic
             .file_paths
             .par_iter()
-            .with_max_len(15) // Limit concurrent file operations
-            .map(|path| SqMassAccess::new(path.to_str().unwrap()).map_err(anyhow::Error::from))
-            .collect();
+            .with_max_len(15)
+            .map(|path| {
+                match parameters.xic.file_type.clone().unwrap().as_str().to_lowercase().as_str() {
+                    "sqmass" => SqMassAccess::new(path.to_str().unwrap())
+                        .map(|r| Box::new(r) as Box<dyn ChromatogramReader>)
+                        .map_err(|e| anyhow::anyhow!(e)),
+                    "parquet" => DuckDBParquetChromatogramReader::new(path.to_str().unwrap())
+                        .map(|r| Box::new(r) as Box<dyn ChromatogramReader>)
+                        .map_err(|e| anyhow::anyhow!(e)),
+                    _ => Err(anyhow::anyhow!("Unsupported XIC file type: {:?}", parameters.xic.file_type.clone().unwrap().as_str())),
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         log::trace!("Creating {:?} XIC file accessors took: {:?}", &parameters.xic.file_paths.len(), start_io.elapsed());
 
         Ok(Self {
             precursor_map: precursor_map.clone(),
             parameters,
             feature_access: vec![osw_access],
-            xic_access: xic_accessors?,
+            xic_access: xic_accessors,
             start,
             progress_num: Some(progress_num.expect("Progress number is not set")),
         })
@@ -339,13 +352,14 @@ impl Runner {
         /* ------------------------------------------------------------------ */
 
         // Extract chromatograms from the XIC files
-        let chromatograms: Vec<_> = self
+        let chromatograms: Vec<TransitionGroup> = self
             .xic_access
             .iter()
             .map(|access| {
                 access.read_chromatograms("NATIVE_ID", native_ids_str.clone(), group_id.clone())
+                    .map_err(|e| anyhow::anyhow!(e))  
             })
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<anyhow::Result<Vec<_>>>()?;    
 
         // Check length of the first chromatogram, should be at least more than 10 points
         if chromatograms[0]
@@ -634,13 +648,13 @@ impl Runner {
         /* ------------------------------------------------------------------ */
 
         // Extract chromatograms from the XIC files
-        let chromatograms: Vec<_> = self
+        let chromatograms:Vec<TransitionGroup>  = self
             .xic_access
             .iter()
             .map(|access| {
                 access.read_chromatograms("NATIVE_ID", native_ids_str.clone(), group_id.clone())
             })
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<anyhow::Result<Vec<_>>>()?;
 
         // Check length of the first chromatogram, should be at least more than 10 points
         if chromatograms[0]
@@ -724,14 +738,13 @@ impl Runner {
         let all_precursor_groups: Vec<HashMap<i32, TransitionGroup>> = self.xic_access
             .par_iter()
             .map(|access| {
-                log::trace!("Reading chromatograms for file: {:?}", access.file);
                 access.read_chromatograms_for_precursors(
                     precursors,
                     self.parameters.xic.include_precursor,
                     self.parameters.xic.num_isotopes,
                 )
             })
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<anyhow::Result<Vec<_>>>()?;
         
         log::trace!("XIC extraction from all files took: {:?}", start_time.elapsed());
     
@@ -856,13 +869,13 @@ impl Runner {
 
         // Extract chromatograms
         let start_time = Instant::now();
-        let chromatograms: Vec<_> = self
+        let chromatograms: Vec<TransitionGroup> = self
             .xic_access
             .par_iter()
             .map(|access| {
                 access.read_chromatograms("NATIVE_ID", native_ids_str.clone(), group_id.clone())
             })
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<anyhow::Result<Vec<_>>>()?;
         log::trace!("XIC extraction took: {:?}", start_time.elapsed());
 
         // Validate chromatograms

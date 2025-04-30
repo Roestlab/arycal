@@ -91,7 +91,7 @@ impl Input {
     /// Validate the parameters.
     fn validate(&self) -> Result<()> {
         // Validate xic type
-        if self.xic.file_type != Some(XicFileType::SqMass) {
+        if self.xic.file_type != Some(XicFileType::SqMass) && self.xic.file_type != Some(XicFileType::parquet) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "Invalid xic type; expected 'sqMass'",

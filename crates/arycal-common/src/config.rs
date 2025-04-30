@@ -5,6 +5,7 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub enum XicFileType {
     SqMass,
+    parquet,
     Unknown,
 }
 
@@ -22,6 +23,7 @@ impl<'de> Deserialize<'de> for XicFileType {
         let s = String::deserialize(deserializer)?;
         match s.to_lowercase().as_str() {
             "sqmass" => Ok(XicFileType::SqMass),
+            "parquet" => Ok(XicFileType::parquet),
             _ => Ok(XicFileType::Unknown),
         }
     }
@@ -31,6 +33,7 @@ impl XicFileType {
     pub fn as_str(&self) -> &str {
         match self {
             XicFileType::SqMass => "sqMass",
+            XicFileType::parquet => "parquet",
             XicFileType::Unknown => "Unknown",
         }
     }

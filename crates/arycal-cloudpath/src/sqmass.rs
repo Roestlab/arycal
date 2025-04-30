@@ -3,18 +3,19 @@ use flate2::read::ZlibDecoder;
 use ordered_float::OrderedFloat;
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
+use rayon::prelude::*;
 use rusqlite::Error as RusqliteError;
 use rusqlite::Result;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 use std::io::Read;
-use rayon::prelude::*;
 
-use arycal_common::chromatogram::Chromatogram;
 use crate::msnumpress::{decode_linear, decode_slof};
 use crate::osw::PrecursorIdData;
 use crate::util::extract_basename;
+use crate::ChromatogramReader;
+use arycal_common::chromatogram::Chromatogram;
 
 /// Create a type alias for the connection pool used for SQLite connections.
 pub type DbPool = Pool<SqliteConnectionManager>;
@@ -27,7 +28,6 @@ pub struct Precursor {
     pub peptide_sequence: String,
     pub charge: i32,
 }
-
 
 /// Represents a group of related chromatograms.
 #[derive(Debug, Clone)]
@@ -147,9 +147,13 @@ pub enum SqMassSqliteError {
 impl fmt::Display for SqMassSqliteError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SqMassSqliteError::DatabaseError(msg) => write!(f, "[SqMassSqliteError] Database Error: {}", msg),
+            SqMassSqliteError::DatabaseError(msg) => {
+                write!(f, "[SqMassSqliteError] Database Error: {}", msg)
+            }
             SqMassSqliteError::GeneralError(msg) => write!(f, "[SqMassSqliteError] Error: {}", msg),
-            SqMassSqliteError::RusqliteError(err) => write!(f, "[SqMassSqliteError] Rusqlite Error: {}", err),
+            SqMassSqliteError::RusqliteError(err) => {
+                write!(f, "[SqMassSqliteError] Rusqlite Error: {}", err)
+            }
         }
     }
 }
@@ -163,6 +167,8 @@ impl From<RusqliteError> for SqMassSqliteError {
 
 /// Implement std::error::Error for SqMassSqliteError
 impl Error for SqMassSqliteError {}
+unsafe impl Send for SqMassSqliteError {}
+unsafe impl Sync for SqMassSqliteError {}
 
 /// Define the SqMassAccess struct
 pub struct SqMassAccess {
@@ -170,9 +176,12 @@ pub struct SqMassAccess {
     pool: Pool<SqliteConnectionManager>,
 }
 
-impl SqMassAccess {
+unsafe impl Send for SqMassAccess {}
+unsafe impl Sync for SqMassAccess {}
+
+impl ChromatogramReader for SqMassAccess {
     /// Constructor to create a new SqMassAccess instance with a connection pool
-    pub fn new(db_path: &str) -> Result<Self, SqMassSqliteError> {
+    fn new(db_path: &str) -> anyhow::Result<Self> {
         log::trace!("Creating SqMassAccess instance with db_path: {}", db_path);
         let manager = SqliteConnectionManager::file(db_path);
         let pool =
@@ -188,23 +197,6 @@ impl SqMassAccess {
         })
     }
 
-    pub fn create_indices(pool: &Pool<SqliteConnectionManager>) -> Result<(), SqMassSqliteError> {
-        // Get a connection from the pool
-        let conn = pool
-            .get()
-            .map_err(|e| SqMassSqliteError::DatabaseError(e.to_string()))?;
-
-        // Create indices for the CHROMATOGRAM and DATA tables
-        conn.execute_batch(
-            r#"
-            CREATE INDEX IF NOT EXISTS idx_chromatogram_native_id ON CHROMATOGRAM(NATIVE_ID);
-            CREATE INDEX IF NOT EXISTS idx_data_chromatogram_id ON DATA(CHROMATOGRAM_ID);
-            "#,
-        )?;
-
-        Ok(())
-    }
-
     /// Reads chromatograms from the database based on specified filter criteria.
     ///
     /// Note: it is a assumed that you would extract chromtaograms for a single transition group at a time. (i.e. a precursor chromatorgram and its associated product ion chromatograms)
@@ -217,12 +209,12 @@ impl SqMassAccess {
     /// # Returns
     /// - A `Result` containing a vector of `Chromatogram` instances on success,
     ///   or an error of type `rusqlite::Error` on failure.
-    pub fn read_chromatograms(
+    fn read_chromatograms(
         &self,
         filter_type: &str,
         filter_values: Vec<&str>,
         group_id: String,
-    ) -> Result<TransitionGroup, SqMassSqliteError> {
+    ) -> anyhow::Result<TransitionGroup> {
         // Get a connection from the pool
         let conn = self
             .pool
@@ -241,7 +233,7 @@ impl SqMassAccess {
             _ => {
                 return Err(SqMassSqliteError::GeneralError(
                     "Invalid filter type".to_string(),
-                ))
+                ).into())
             }
         };
 
@@ -307,43 +299,46 @@ impl SqMassAccess {
         Ok(transition_group)
     }
 
-    pub fn read_chromatograms_for_precursors(
+    /// Reads chromatograms for a list of precursors from the database.
+    fn read_chromatograms_for_precursors(
         &self,
         precursors: &[PrecursorIdData],
         include_precursor: bool,
         num_isotopes: usize,
-    ) -> Result<HashMap<i32, TransitionGroup>, SqMassSqliteError> {
+    ) -> anyhow::Result<HashMap<i32, TransitionGroup>> {
         // Collect all native IDs for all precursors in parallel
-        let (all_native_ids, precursor_to_native_ids): (Vec<String>, HashMap<i32, Vec<String>>) = precursors
-        .par_iter()
-        .map(|precursor| {
-            let native_ids = precursor.extract_native_ids_for_sqmass(include_precursor, num_isotopes);
-            (precursor.precursor_id, native_ids)
-        })
-        .fold(
-            || (Vec::new(), HashMap::new()),
-            |(mut all_ids, mut prec_map), (prec_id, native_ids)| {
-                all_ids.extend(native_ids.clone());
-                prec_map.insert(prec_id, native_ids);
-                (all_ids, prec_map)
-            }
-        )
-        .reduce(
-            || (Vec::new(), HashMap::new()),
-            |(mut all_ids1, mut prec_map1), (all_ids2, prec_map2)| {
-                all_ids1.extend(all_ids2);
-                prec_map1.extend(prec_map2);
-                (all_ids1, prec_map1)
-            }
-        );
-    
+        let (all_native_ids, precursor_to_native_ids): (Vec<String>, HashMap<i32, Vec<String>>) =
+            precursors
+                .par_iter()
+                .map(|precursor| {
+                    let native_ids =
+                        precursor.extract_native_ids_for_sqmass(include_precursor, num_isotopes);
+                    (precursor.precursor_id, native_ids)
+                })
+                .fold(
+                    || (Vec::new(), HashMap::new()),
+                    |(mut all_ids, mut prec_map), (prec_id, native_ids)| {
+                        all_ids.extend(native_ids.clone());
+                        prec_map.insert(prec_id, native_ids);
+                        (all_ids, prec_map)
+                    },
+                )
+                .reduce(
+                    || (Vec::new(), HashMap::new()),
+                    |(mut all_ids1, mut prec_map1), (all_ids2, prec_map2)| {
+                        all_ids1.extend(all_ids2);
+                        prec_map1.extend(prec_map2);
+                        (all_ids1, prec_map1)
+                    },
+                );
+
         // Get all chromatograms in one query
         let placeholders = all_native_ids
             .iter()
             .map(|id| format!("'{}'", id))
             .collect::<Vec<_>>()
             .join(",");
-    
+
         let query = format!(
             "SELECT DATA.CHROMATOGRAM_ID, CHROMATOGRAM.NATIVE_ID, DATA.COMPRESSION, DATA.DATA_TYPE, DATA.DATA 
              FROM DATA 
@@ -353,50 +348,60 @@ impl SqMassAccess {
         );
 
         // log::trace!("Query: {}", query);
-    
-        let conn = self.pool.get().map_err(|e| {
-            SqMassSqliteError::DatabaseError(e.to_string())
-        })?;
+
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| SqMassSqliteError::DatabaseError(e.to_string()))?;
         let mut stmt = conn.prepare(&query)?;
-    
+
         // Process all results and group by precursor
         let mut precursor_groups = HashMap::new();
-        
+
         let rows = stmt.query_map([], |row| {
             let id: i32 = row.get(0)?;
             let native_id: String = row.get(1)?;
             let compression: i32 = row.get(2)?;
             let data_type: i32 = row.get(3)?;
             let encoded_data: Vec<u8> = row.get(4)?;
-            
+
             let decoded_data = decompress_data(&encoded_data, compression)?;
-            
+
             Ok((id, native_id, decoded_data, data_type))
         })?;
-    
+
         for row in rows {
             let (id, native_id, decoded_data, data_type) = row?;
-            
+
             // Find which precursor this chromatogram belongs to
             for (precursor_id, precursor_native_ids) in &precursor_to_native_ids {
                 if precursor_native_ids.contains(&native_id) {
-                    let group_id = format!("{}_{}", 
-                        precursors.iter().find(|p| p.precursor_id == *precursor_id)
+                    let group_id = format!(
+                        "{}_{}",
+                        precursors
+                            .iter()
+                            .find(|p| p.precursor_id == *precursor_id)
                             .map(|p| p.modified_sequence.clone())
                             .unwrap_or_default(),
-                        precursors.iter().find(|p| p.precursor_id == *precursor_id)
+                        precursors
+                            .iter()
+                            .find(|p| p.precursor_id == *precursor_id)
                             .map(|p| p.precursor_charge.to_string())
                             .unwrap_or_default()
                     );
-                    
-                    let group = precursor_groups.entry(*precursor_id)
-                        .or_insert_with(|| TransitionGroup {
-                            group_id: group_id.clone(),
-                            chromatograms: HashMap::new(),
-                            metadata: HashMap::new(),
-                        });
-                    
-                    let chrom = group.chromatograms.entry(native_id.clone())
+
+                    let group =
+                        precursor_groups
+                            .entry(*precursor_id)
+                            .or_insert_with(|| TransitionGroup {
+                                group_id: group_id.clone(),
+                                chromatograms: HashMap::new(),
+                                metadata: HashMap::new(),
+                            });
+
+                    let chrom = group
+                        .chromatograms
+                        .entry(native_id.clone())
                         .or_insert_with(|| Chromatogram {
                             id,
                             native_id: native_id.clone(),
@@ -404,25 +409,48 @@ impl SqMassAccess {
                             intensities: Vec::new(),
                             metadata: HashMap::new(),
                         });
-                    
+
                     match data_type {
                         2 => chrom.retention_times = decoded_data,
                         1 => chrom.intensities = decoded_data,
                         _ => continue,
                     }
-                    
+
                     break;
                 }
             }
         }
-    
+
         // Add metadata to each group
         for group in precursor_groups.values_mut() {
-            group.metadata.insert("file".to_string(), self.file.to_string());
-            group.metadata.insert("basename".to_string(), extract_basename(&self.file));
+            group
+                .metadata
+                .insert("file".to_string(), self.file.to_string());
+            group
+                .metadata
+                .insert("basename".to_string(), extract_basename(&self.file));
         }
-    
+
         Ok(precursor_groups)
+    }
+}
+
+impl SqMassAccess {
+    pub fn create_indices(pool: &Pool<SqliteConnectionManager>) -> Result<(), SqMassSqliteError> {
+        // Get a connection from the pool
+        let conn = pool
+            .get()
+            .map_err(|e| SqMassSqliteError::DatabaseError(e.to_string()))?;
+
+        // Create indices for the CHROMATOGRAM and DATA tables
+        conn.execute_batch(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_chromatogram_native_id ON CHROMATOGRAM(NATIVE_ID);
+            CREATE INDEX IF NOT EXISTS idx_data_chromatogram_id ON DATA(CHROMATOGRAM_ID);
+            "#,
+        )?;
+
+        Ok(())
     }
 
     /// Extracts chromatogram IDs along with their corresponding peptides and charge states.
@@ -539,7 +567,7 @@ impl SqMassAccess {
 /// # Returns
 /// - A `Result` containing a vector of f64 values on success,
 ///   or an error of type `rusqlite::Error` on failure.
-fn decompress_data(encoded_data: &[u8], compression: i32) -> Result<Vec<f64>, rusqlite::Error> {
+pub fn decompress_data(encoded_data: &[u8], compression: i32) -> Result<Vec<f64>, rusqlite::Error> {
     match compression {
         1 => {
             // zlib decompression
