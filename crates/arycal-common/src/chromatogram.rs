@@ -267,6 +267,15 @@ pub fn pad_chromatograms(chromatograms: Vec<Chromatogram>) -> Vec<Chromatogram> 
 }
 
 
+/// Struct for the aligned retention time pair.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, DeepSizeOf)]
+pub struct AlignedRTPointPair {
+    /// The retention time point of the first chromatogram (reference).
+    pub rt1: f32,
+    /// The retention time point of the second chromatogram (query aligned).
+    pub rt2: f32
+}
+
 /// Represents the mapping of peaks across chromatograms.
 #[derive(Debug, Clone, Serialize, Deserialize, DeepSizeOf)]
 pub struct AlignedChromatogram {
@@ -277,7 +286,7 @@ pub struct AlignedChromatogram {
     /// Lag between the reference and query chromatograms (Only for FFT and FFT-DTW)
     pub lag: Option<isize>,
     /// Mapping of retention times between the original and aligned chromatograms
-    pub rt_mapping: Vec<HashMap<String, f64>>,
+    pub rt_mapping: Vec<AlignedRTPointPair>,
     /// basename of reference chromatogram
     pub reference_basename: String,
 }
