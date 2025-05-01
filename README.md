@@ -10,6 +10,8 @@
 
 # ARYCAL: Across Run dYnamic Chromatogram ALignment
 
+[![Build Status](https://github.com/singjc/arycal/actions/workflows/rust.yml/badge.svg)](https://github.com/singjc/arycal/actions/workflows/rust.yml)
+
 
 ## Overview
 **ARYCAL** is a Rust-based tool for aligning extracted ion chromatograms (EICs) across multiple runs from targeted DIA mass spectrometry data. ARYCAL is based on  similar principles as [DIAlignR](https://github.com/shubham1637/DIAlignR), using dynamic programming to align precursor chromatographic traces across multiple runs. In addition, ARYCAL supports the use of fast Fourier transform (FFT) for alignment, which can reduce the time required for alignment.
