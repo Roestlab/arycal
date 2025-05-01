@@ -4,6 +4,7 @@ use std::f64;
 use arycal_common::config::{AlignmentConfig, SmoothingConfig};
 use rand::seq::IndexedRandom;
 use union_find::{QuickFindUf, UnionBySize, UnionFind};
+use rayon::prelude::*;
 
 use arycal_cloudpath::osw::{FeatureData, ValueEntryType};
 use arycal_cloudpath::sqmass::TransitionGroup;
@@ -212,6 +213,165 @@ pub fn validate_widths(left_width: f64, right_width: f64) -> (f64, f64) {
 /// - `reference_features`: The features in the reference chromatogram.
 /// - `aligned_features`: The features in the query chromatogram that are to be mapped to the aligned chromatogram.
 /// - `rt_tolerance`: The retention time tolerance for mapping peaks.
+// pub fn map_peaks_across_runs(
+//     aligned_chrom: &AlignedChromatogram,
+//     reference_features: Vec<FeatureData>,
+//     aligned_features: Vec<FeatureData>,
+//     rt_tolerance: f64,
+//     alignment_config: &AlignmentConfig,
+// ) -> Vec<PeakMapping> {
+//     let mut peak_mappings = Vec::new();
+
+//     log::trace!("There are {} reference features and {} query features to map", reference_features[0].feature_id.clone().unwrap().as_multiple().unwrap().len(), aligned_features[0].feature_id.clone().unwrap().as_multiple().unwrap().len() );
+
+//     // Step 1: Map peaks from reference to query chromatogram
+//     for ref_feature in &reference_features { // TODO: This is only a Vec of one element which contains inner Vecs of features
+//         let mut alignment_id = 0;
+
+//         for (i, &rt) in ref_feature.exp_rt.as_multiple().unwrap().iter().enumerate() {
+//             // Get the aligned query rt that maps to the reference rt
+//             let target_rt = map_retention_time(rt, &aligned_chrom.rt_mapping);
+
+//             // Reverse the rt_mapping to get the aligned query rt in it's original space
+//             // let original_target_rt = reverse_rt_mapping(target_rt, &aligned_chrom, alignment_config).unwrap();
+
+
+//             log::trace!("Mapping closest aligned query RT: {:?} to reference RT feature: {:?}", target_rt, rt);
+
+//             // Generate alignment_id based on reference_rt (or another unique identifier)
+//             // let alignment_id = rt.to_bits() as i64; // Use the bits of the reference_rt as alignment_id
+
+//             if let Some((aligned_feature_id, aligned_rt, aligned_left_width, aligned_right_width)) =
+//                 find_closest_feature(target_rt, &aligned_features, rt_tolerance)
+//             {
+//                 log::trace!("Found query feature (id: {}) mapping to reference feature (id: {}): {} -> {}", aligned_feature_id, ref_feature.feature_id.clone().unwrap().as_multiple().unwrap()[i], aligned_rt, rt);
+
+//                 // TODO: Really shouldn't need to have to validate widths, as these are derived from OpenSwath 
+//                 let (validated_left_width_ref, validated_right_width_ref) = validate_widths(
+//                     ref_feature.left_width.as_ref().unwrap().as_multiple().unwrap()[i],
+//                     ref_feature.right_width.as_ref().unwrap().as_multiple().unwrap()[i],
+//                 );
+
+//                 let (validated_left_width_aligned, validated_right_width_aligned) = validate_widths(
+//                     aligned_left_width,
+//                     aligned_right_width,
+//                 );
+                
+//                 peak_mappings.push(PeakMapping {
+//                     alignment_id, 
+//                     precursor_id: ref_feature.precursor_id.clone(),
+//                     run_id: aligned_features[0].run_id.clone(),
+//                     reference_feature_id: ref_feature.feature_id.clone().unwrap().as_multiple().unwrap()[i],
+//                     aligned_feature_id,
+//                     reference_rt: rt,
+//                     aligned_rt,
+//                     reference_left_width: validated_left_width_ref,
+//                     reference_right_width: validated_right_width_ref,
+//                     aligned_left_width: validated_left_width_aligned,
+//                     aligned_right_width: validated_right_width_aligned,
+//                     reference_filename: ref_feature.basename.clone(),
+//                     aligned_filename: aligned_features[0].basename.clone(),
+//                     label: 1,
+//                     xcorr_coelution_to_ref: None,
+//                     xcorr_shape_to_ref: None,
+//                     mi_to_ref: None,
+//                     xcorr_coelution_to_all: None,
+//                     xcorr_shape_to_all: None,
+//                     mi_to_all: None,
+//                     rt_deviation: None,
+//                     intensity_ratio: None,
+//                 });
+//             } else {
+//                 log::trace!("Couldn't find a matching feature for reference RT: {:?} with id: {}", rt, ref_feature.feature_id.clone().unwrap().as_multiple().unwrap()[i]);
+//                 // // Recover missing peak in the query chromatogram
+//                 // log::trace!("Recovering missing peak in query chromatogram for reference RT: {:?}", rt);
+//                 // let (validated_left_width_ref, validated_right_width_ref) = validate_widths(
+//                 //     ref_feature.left_width.as_ref().unwrap().as_multiple().unwrap()[i],
+//                 //     ref_feature.right_width.as_ref().unwrap().as_multiple().unwrap()[i],
+//                 // );
+//                 // peak_mappings.push(PeakMapping {
+//                 //     alignment_id, // Use the same alignment_id for the same peak across runs
+//                 //     reference_feature_id: *ref_feature.feature_id.clone().unwrap(),
+//                 //     aligned_feature_id: -1, // Use -1 to indicate a missing peak
+//                 //     reference_rt: rt,
+//                 //     aligned_rt: target_rt,
+//                 //     reference_left_width: validated_left_width_ref,
+//                 //     reference_right_width: validated_right_width_ref,
+//                 //     aligned_left_width: validated_left_width_ref, // Use reference values as placeholder
+//                 //     aligned_right_width: validated_right_width_ref, // Use reference values as placeholder
+//                 //     reference_filename: ref_feature.basename.clone(),
+//                 //     aligned_filename: aligned_features[0].basename.clone(),
+//                 //     label: 1,
+//                 //     xcorr_coelution_to_ref: None,
+//                 //     xcorr_shape_to_ref: None,
+//                 //     mi_to_ref: None,
+//                 //     xcorr_coelution_to_all: None,
+//                 //     xcorr_shape_to_all: None,
+//                 //     mi_to_all: None,
+//                 //     rt_deviation: None,
+//                 //     intensity_ratio: None,
+//                 // });
+//             }
+//             alignment_id += 1;
+//         }
+//     }
+
+//     // // Step 2: Map peaks from query to reference chromatogram (to recover missing peaks in the reference)
+//     // for aligned_feature in &aligned_features {
+//     //     for (i, &rt) in aligned_feature.exp_rt.as_multiple().unwrap().iter().enumerate() {
+//     //         let reference_rt = map_retention_time(rt, &aligned_chrom.rt_mapping);
+
+//     //         // println!("Mapping reference RT: {:?} to query aligned RT: {:?}", reference_rt, rt);
+
+//     //         // Generate alignment_id based on reference_rt (or another unique identifier)
+//     //         let alignment_id = reference_rt.to_bits() as i64; // Use the bits of the reference_rt as alignment_id
+
+//     //         if let Some((reference_feature_id, reference_rt, reference_left_width, reference_right_width)) =
+//     //             find_closest_feature(reference_rt, &reference_features, rt_tolerance)
+//     //         {
+//     //             // Skip if the peak is already mapped in Step 1
+//     //             if !peak_mappings.iter().any(|m| m.aligned_feature_id == *aligned_feature.feature_id.clone().unwrap()) {
+//     //                 // println!("Found reference feature mapping to query feature: {:?}", reference_feature_id);
+//     //                 peak_mappings.push(PeakMapping {
+//     //                     alignment_id, // Use the same alignment_id for the same peak across runs
+//     //                     reference_feature_id,
+//     //                     aligned_feature_id: *aligned_feature.feature_id.clone().unwrap(),
+//     //                     reference_rt,
+//     //                     aligned_rt: rt,
+//     //                     reference_left_width,
+//     //                     reference_right_width,
+//     //                     aligned_left_width: aligned_feature.left_width.as_ref().unwrap().as_multiple().unwrap()[i],
+//     //                     aligned_right_width: aligned_feature.right_width.as_ref().unwrap().as_multiple().unwrap()[i],
+//     //                     reference_filename: reference_features[0].basename.clone(),
+//     //                     aligned_filename: aligned_feature.basename.clone(),
+//     //                 });
+//     //             }
+//     //         } else {
+//     //             // Recover missing peak in the reference chromatogram
+//     //             // println!("Recovering missing peak in reference chromatogram for query RT: {:?}", rt);
+//     //             peak_mappings.push(PeakMapping {
+//     //                 alignment_id, // Use the same alignment_id for the same peak across runs
+//     //                 reference_feature_id: -1, // Use -1 to indicate a missing peak
+//     //                 aligned_feature_id: *aligned_feature.feature_id.clone().unwrap(),
+//     //                 reference_rt,
+//     //                 aligned_rt: rt,
+//     //                 reference_left_width: aligned_feature.left_width.as_ref().unwrap().as_multiple().unwrap()[i], // Use query values as placeholder
+//     //                 reference_right_width: aligned_feature.right_width.as_ref().unwrap().as_multiple().unwrap()[i], // Use query values as placeholder
+//     //                 aligned_left_width: aligned_feature.left_width.as_ref().unwrap().as_multiple().unwrap()[i],
+//     //                 aligned_right_width: aligned_feature.right_width.as_ref().unwrap().as_multiple().unwrap()[i],
+//     //                 reference_filename: reference_features[0].basename.clone(),
+//     //                 aligned_filename: aligned_feature.basename.clone(),
+//     //             });
+//     //         }
+//     //     }
+//     // }
+
+//     // Step 3: Remove overlapping peaks
+//     // let filtered_peaks = remove_overlapping_peaks(peak_mappings);
+
+//     peak_mappings
+// }
+
 pub fn map_peaks_across_runs(
     aligned_chrom: &AlignedChromatogram,
     reference_features: Vec<FeatureData>,
@@ -219,156 +379,83 @@ pub fn map_peaks_across_runs(
     rt_tolerance: f64,
     alignment_config: &AlignmentConfig,
 ) -> Vec<PeakMapping> {
-    let mut peak_mappings = Vec::new();
-
-    log::trace!("There are {} reference features and {} query features to map", reference_features[0].feature_id.clone().unwrap().as_multiple().unwrap().len(), aligned_features[0].feature_id.clone().unwrap().as_multiple().unwrap().len() );
-
-    // Step 1: Map peaks from reference to query chromatogram
-    for ref_feature in &reference_features { // TODO: This is only a Vec of one element which contains inner Vecs of features
-        let mut alignment_id = 0;
-
-        for (i, &rt) in ref_feature.exp_rt.as_multiple().unwrap().iter().enumerate() {
-            // Get the aligned query rt that maps to the reference rt
-            let target_rt = map_retention_time(rt, &aligned_chrom.rt_mapping);
-
-            // Reverse the rt_mapping to get the aligned query rt in it's original space
-            // let original_target_rt = reverse_rt_mapping(target_rt, &aligned_chrom, alignment_config).unwrap();
-
-
-            log::trace!("Mapping closest aligned query RT: {:?} to reference RT feature: {:?}", target_rt, rt);
-
-            // Generate alignment_id based on reference_rt (or another unique identifier)
-            // let alignment_id = rt.to_bits() as i64; // Use the bits of the reference_rt as alignment_id
-
-            if let Some((aligned_feature_id, aligned_rt, aligned_left_width, aligned_right_width)) =
-                find_closest_feature(target_rt, &aligned_features, rt_tolerance)
-            {
-                log::trace!("Found query feature (id: {}) mapping to reference feature (id: {}): {} -> {}", aligned_feature_id, ref_feature.feature_id.clone().unwrap().as_multiple().unwrap()[i], aligned_rt, rt);
-
-                // TODO: Really shouldn't need to have to validate widths, as these are derived from OpenSwath 
-                let (validated_left_width_ref, validated_right_width_ref) = validate_widths(
-                    ref_feature.left_width.as_ref().unwrap().as_multiple().unwrap()[i],
-                    ref_feature.right_width.as_ref().unwrap().as_multiple().unwrap()[i],
-                );
-
-                let (validated_left_width_aligned, validated_right_width_aligned) = validate_widths(
-                    aligned_left_width,
-                    aligned_right_width,
-                );
-                
-                peak_mappings.push(PeakMapping {
-                    alignment_id, 
-                    precursor_id: ref_feature.precursor_id.clone(),
-                    run_id: aligned_features[0].run_id.clone(),
-                    reference_feature_id: ref_feature.feature_id.clone().unwrap().as_multiple().unwrap()[i],
-                    aligned_feature_id,
-                    reference_rt: rt,
-                    aligned_rt,
-                    reference_left_width: validated_left_width_ref,
-                    reference_right_width: validated_right_width_ref,
-                    aligned_left_width: validated_left_width_aligned,
-                    aligned_right_width: validated_right_width_aligned,
-                    reference_filename: ref_feature.basename.clone(),
-                    aligned_filename: aligned_features[0].basename.clone(),
-                    label: 1,
-                    xcorr_coelution_to_ref: None,
-                    xcorr_shape_to_ref: None,
-                    mi_to_ref: None,
-                    xcorr_coelution_to_all: None,
-                    xcorr_shape_to_all: None,
-                    mi_to_all: None,
-                    rt_deviation: None,
-                    intensity_ratio: None,
-                });
-            } else {
-                log::trace!("Couldn't find a matching feature for reference RT: {:?} with id: {}", rt, ref_feature.feature_id.clone().unwrap().as_multiple().unwrap()[i]);
-                // // Recover missing peak in the query chromatogram
-                // log::trace!("Recovering missing peak in query chromatogram for reference RT: {:?}", rt);
-                // let (validated_left_width_ref, validated_right_width_ref) = validate_widths(
-                //     ref_feature.left_width.as_ref().unwrap().as_multiple().unwrap()[i],
-                //     ref_feature.right_width.as_ref().unwrap().as_multiple().unwrap()[i],
-                // );
-                // peak_mappings.push(PeakMapping {
-                //     alignment_id, // Use the same alignment_id for the same peak across runs
-                //     reference_feature_id: *ref_feature.feature_id.clone().unwrap(),
-                //     aligned_feature_id: -1, // Use -1 to indicate a missing peak
-                //     reference_rt: rt,
-                //     aligned_rt: target_rt,
-                //     reference_left_width: validated_left_width_ref,
-                //     reference_right_width: validated_right_width_ref,
-                //     aligned_left_width: validated_left_width_ref, // Use reference values as placeholder
-                //     aligned_right_width: validated_right_width_ref, // Use reference values as placeholder
-                //     reference_filename: ref_feature.basename.clone(),
-                //     aligned_filename: aligned_features[0].basename.clone(),
-                //     label: 1,
-                //     xcorr_coelution_to_ref: None,
-                //     xcorr_shape_to_ref: None,
-                //     mi_to_ref: None,
-                //     xcorr_coelution_to_all: None,
-                //     xcorr_shape_to_all: None,
-                //     mi_to_all: None,
-                //     rt_deviation: None,
-                //     intensity_ratio: None,
-                // });
-            }
-            alignment_id += 1;
-        }
+    // Early return if no features to process
+    if reference_features.is_empty() || aligned_features.is_empty() {
+        return Vec::new();
     }
 
-    // // Step 2: Map peaks from query to reference chromatogram (to recover missing peaks in the reference)
-    // for aligned_feature in &aligned_features {
-    //     for (i, &rt) in aligned_feature.exp_rt.as_multiple().unwrap().iter().enumerate() {
-    //         let reference_rt = map_retention_time(rt, &aligned_chrom.rt_mapping);
+    // log::trace!(
+    //     "There are {} reference features and {} query features to map", 
+    //     reference_features[0].feature_id.as_ref().map(|f| f.as_multiple().len()).unwrap_or(0),
+    //     aligned_features[0].feature_id.as_ref().map(|f| f.as_multiple().len()).unwrap_or(0)
+    // );
 
-    //         // println!("Mapping reference RT: {:?} to query aligned RT: {:?}", reference_rt, rt);
+    // Pre-extract feature data for faster access
+    let ref_feature = &reference_features[0];
+    let aligned_feature = &aligned_features[0];
+    
+    let ref_rts = ref_feature.exp_rt.as_multiple().unwrap();
+    let ref_feature_ids = ref_feature.feature_id.as_ref().unwrap().as_multiple();
+    let ref_left_widths = ref_feature.left_width.as_ref().unwrap().as_multiple();
+    let ref_right_widths = ref_feature.right_width.as_ref().unwrap().as_multiple();
 
-    //         // Generate alignment_id based on reference_rt (or another unique identifier)
-    //         let alignment_id = reference_rt.to_bits() as i64; // Use the bits of the reference_rt as alignment_id
+    // Process features in parallel
+    ref_rts.par_iter()
+        .enumerate()
+        .filter_map(|(i, &rt)| {
+            let target_rt = map_retention_time(rt, &aligned_chrom.rt_mapping);
+            log::trace!(
+                "Mapping closest aligned query RT: {:?} to reference RT feature: {:?}", 
+                target_rt, rt
+            );
 
-    //         if let Some((reference_feature_id, reference_rt, reference_left_width, reference_right_width)) =
-    //             find_closest_feature(reference_rt, &reference_features, rt_tolerance)
-    //         {
-    //             // Skip if the peak is already mapped in Step 1
-    //             if !peak_mappings.iter().any(|m| m.aligned_feature_id == *aligned_feature.feature_id.clone().unwrap()) {
-    //                 // println!("Found reference feature mapping to query feature: {:?}", reference_feature_id);
-    //                 peak_mappings.push(PeakMapping {
-    //                     alignment_id, // Use the same alignment_id for the same peak across runs
-    //                     reference_feature_id,
-    //                     aligned_feature_id: *aligned_feature.feature_id.clone().unwrap(),
-    //                     reference_rt,
-    //                     aligned_rt: rt,
-    //                     reference_left_width,
-    //                     reference_right_width,
-    //                     aligned_left_width: aligned_feature.left_width.as_ref().unwrap().as_multiple().unwrap()[i],
-    //                     aligned_right_width: aligned_feature.right_width.as_ref().unwrap().as_multiple().unwrap()[i],
-    //                     reference_filename: reference_features[0].basename.clone(),
-    //                     aligned_filename: aligned_feature.basename.clone(),
-    //                 });
-    //             }
-    //         } else {
-    //             // Recover missing peak in the reference chromatogram
-    //             // println!("Recovering missing peak in reference chromatogram for query RT: {:?}", rt);
-    //             peak_mappings.push(PeakMapping {
-    //                 alignment_id, // Use the same alignment_id for the same peak across runs
-    //                 reference_feature_id: -1, // Use -1 to indicate a missing peak
-    //                 aligned_feature_id: *aligned_feature.feature_id.clone().unwrap(),
-    //                 reference_rt,
-    //                 aligned_rt: rt,
-    //                 reference_left_width: aligned_feature.left_width.as_ref().unwrap().as_multiple().unwrap()[i], // Use query values as placeholder
-    //                 reference_right_width: aligned_feature.right_width.as_ref().unwrap().as_multiple().unwrap()[i], // Use query values as placeholder
-    //                 aligned_left_width: aligned_feature.left_width.as_ref().unwrap().as_multiple().unwrap()[i],
-    //                 aligned_right_width: aligned_feature.right_width.as_ref().unwrap().as_multiple().unwrap()[i],
-    //                 reference_filename: reference_features[0].basename.clone(),
-    //                 aligned_filename: aligned_feature.basename.clone(),
-    //             });
-    //         }
-    //     }
-    // }
+            find_closest_feature(target_rt, &aligned_features, rt_tolerance)
+                .map(|(aligned_feature_id, aligned_rt, aligned_left_width, aligned_right_width)| {
+                    log::trace!(
+                        "Found query feature (id: {}) mapping to reference feature (id: {}): {} -> {}",
+                        aligned_feature_id, 
+                        ref_feature_ids.unwrap()[i], 
+                        aligned_rt, 
+                        rt
+                    );
 
-    // Step 3: Remove overlapping peaks
-    // let filtered_peaks = remove_overlapping_peaks(peak_mappings);
+                    let (validated_left_width_ref, validated_right_width_ref) = validate_widths(
+                        ref_left_widths.unwrap()[i],
+                        ref_right_widths.unwrap()[i],
+                    );
 
-    peak_mappings
+                    let (validated_left_width_aligned, validated_right_width_aligned) = validate_widths(
+                        aligned_left_width,
+                        aligned_right_width,
+                    );
+                    
+                    PeakMapping {
+                        alignment_id: i as i64,
+                        precursor_id: ref_feature.precursor_id.clone(),
+                        run_id: aligned_feature.run_id.clone(),
+                        reference_feature_id: ref_feature_ids.unwrap()[i],
+                        aligned_feature_id,
+                        reference_rt: rt,
+                        aligned_rt,
+                        reference_left_width: validated_left_width_ref,
+                        reference_right_width: validated_right_width_ref,
+                        aligned_left_width: validated_left_width_aligned,
+                        aligned_right_width: validated_right_width_aligned,
+                        reference_filename: ref_feature.basename.clone(),
+                        aligned_filename: aligned_feature.basename.clone(),
+                        label: 1,
+                        xcorr_coelution_to_ref: None,
+                        xcorr_shape_to_ref: None,
+                        mi_to_ref: None,
+                        xcorr_coelution_to_all: None,
+                        xcorr_shape_to_all: None,
+                        mi_to_all: None,
+                        rt_deviation: None,
+                        intensity_ratio: None,
+                    }
+                })
+        })
+        .collect()
 }
 
 /// Removes overlapping peaks within the same run by comparing peak boundaries.
@@ -541,36 +628,32 @@ fn map_retention_time(rt: f64, rt_mapping: &[HashMap<String, String>]) -> f64 {
 }
 
 /// Finds the closest retention time in the aligned feature's exp_rt vector.
+/// Returns (feature_id, rt, left_width, right_width)
 fn find_closest_feature(
     target_rt: f64,
     features: &[FeatureData],
     tolerance: f64,
 ) -> Option<(i64, f64, f64, f64)> {
-    // Returns (feature_id, rt, left_width, right_width)
-    let mut closest_match = None;
-    let mut min_diff = f64::MAX;
-
-    // Iterate over all features
-    for feature in features {
-        // Iterate over each retention time in the feature's exp_rt
-        for (i, &rt) in feature.exp_rt.as_multiple().unwrap().iter().enumerate() {
-            let diff = (rt - target_rt).abs();
-
-            // Check if the retention time is within the tolerance window
-            if diff <= tolerance && diff < min_diff {
-                min_diff = diff;
-                closest_match = Some((
-                    feature.feature_id.clone().unwrap().as_multiple().unwrap()[i], // feature_id
-                    rt,                                   // retention time
-                    feature.left_width.as_ref().unwrap().as_multiple().unwrap()[i], // left_width
-                    feature.right_width.as_ref().unwrap().as_multiple().unwrap()[i], // right_width
-                ));
-                log::trace!("Found closest potential matching feature to {} target rt: {:?}", target_rt, closest_match);
-            }
-        }
-    }
-    log::trace!("Returning  final closest match: {:?}", closest_match);
-    closest_match
+    features.iter()
+        .flat_map(|feature| {
+            feature.exp_rt.as_multiple().unwrap()
+                .iter()
+                .enumerate()
+                .map(|(i, &rt)| {
+                    (
+                        feature.feature_id.as_ref().unwrap().as_multiple().unwrap()[i],
+                        rt,
+                        feature.left_width.as_ref().unwrap().as_multiple().unwrap()[i],
+                        feature.right_width.as_ref().unwrap().as_multiple().unwrap()[i],
+                        (rt - target_rt).abs()
+                    )
+                })
+        })
+        .filter(|(_, _, _, _, diff)| *diff <= tolerance)
+        .min_by(|(_, _, _, _, diff1), (_, _, _, _, diff2)| {
+            diff1.partial_cmp(diff2).unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .map(|(id, rt, left, right, _)| (id, rt, left, right))
 }
 
 

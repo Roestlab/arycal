@@ -3,6 +3,7 @@ use ndarray::Array1;
 use rand::prelude::IndexedRandom;
 use std::collections::HashMap;
 use std::f64;
+use rayon::prelude::*;
 use dtw_rs::{Algorithm, DynamicTimeWarping};
 
 use crate::alignment::fast_fourier_lag::{find_lag_with_max_correlation, shift_chromatogram};
@@ -26,44 +27,25 @@ pub fn create_fft_dtw_rt_mapping(
     chrom1: &Chromatogram,
     chrom2: &Chromatogram,
 ) -> Vec<HashMap<String, String>> {
-    let mut mapping = Vec::new();
+    let run1_name = chrom1.metadata.get("basename").unwrap_or(&chrom1.native_id).to_string();
+    let run2_name = chrom2.metadata.get("basename").unwrap_or(&chrom2.native_id).to_string();
 
-    // Iterate over retention times in chrom1
-    for (i, &rt1) in chrom1.retention_times.iter().enumerate() {
-        // Calculate the corresponding index in chrom2 using the lag and DTW alignment
-        let j = (i as isize + lag) as usize;
-
-        // Check if the index is valid within chrom2
-        if j < chrom2.retention_times.len() {
-            let rt2 = chrom2.retention_times[j];
-
-            // Create a mapping entry
-            let mut entry = HashMap::new();
-            entry.insert("rt1".to_string(), rt1.to_string());
-            entry.insert("rt2".to_string(), rt2.to_string());
-            entry.insert("alignment".to_string(), format!("({}, {})", rt1, rt2));
-            entry.insert(
-                "run1".to_string(),
-                chrom1
-                    .metadata
-                    .get("basename")
-                    .unwrap_or(&chrom1.native_id)
-                    .clone(),
-            );
-            entry.insert(
-                "run2".to_string(),
-                chrom2
-                    .metadata
-                    .get("basename")
-                    .unwrap_or(&chrom2.native_id)
-                    .clone(),
-            );
-
-            mapping.push(entry);
-        }
-    }
-
-    mapping
+    chrom1.retention_times
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &rt1)| {
+            let j = (i as isize + lag) as usize;
+            chrom2.retention_times.get(j).map(|&rt2| {
+                let mut entry = HashMap::with_capacity(5);
+                entry.insert("rt1".to_string(), rt1.to_string());
+                entry.insert("rt2".to_string(), rt2.to_string());
+                entry.insert("alignment".to_string(), format!("({}, {})", rt1, rt2));
+                entry.insert("run1".to_string(), run1_name.clone());
+                entry.insert("run2".to_string(), run2_name.clone());
+                entry
+            })
+        })
+        .collect()
 }
 
 /// Aligns a series of chromatograms using FFT-based cross-correlation with local refinement via DTW.
@@ -81,18 +63,18 @@ pub fn create_fft_dtw_rt_mapping(
 /// # Returns
 /// A vector of aligned chromatograms.
 pub fn star_align_tics_fft_with_local_refinement(
-    smoothed_tics: Vec<Chromatogram>, params: &AlignmentConfig
+    smoothed_tics: Vec<Chromatogram>,
+    params: &AlignmentConfig,
 ) -> Result<Vec<AlignedChromatogram>, AnyHowError> {
-    // Ensure we have at least two chromatograms to align
     if smoothed_tics.len() < 2 {
-        return Err(AnyHowError::msg(
-            "At least two chromatograms are required for alignment",
-        ));
+        return Err(AnyHowError::msg("At least two chromatograms are required for alignment"));
     }
 
-    // Randomly pick a reference chromatogram if not specified in params
+    // Random reference selection (keeping original method)
     let reference_chrom = if let Some(ref_chrom) = &params.reference_run {
-        smoothed_tics.iter().find(|x| x.metadata.get("basename").unwrap_or(&x.native_id) == &extract_basename(ref_chrom)).unwrap()
+        smoothed_tics.iter()
+            .find(|x| x.metadata.get("basename").unwrap_or(&x.native_id) == &extract_basename(ref_chrom))
+            .ok_or_else(|| AnyHowError::msg("Reference chromatogram not found"))?
     } else {
         let mut rng = rand::rng();
         let binding = (0..smoothed_tics.len()).collect::<Vec<_>>();
@@ -100,75 +82,55 @@ pub fn star_align_tics_fft_with_local_refinement(
         &smoothed_tics[*reference_idx]
     };
 
-    // println!(
-    //     "Selected reference run: {:?}",
-    //     reference_chrom.metadata.get("basename").unwrap_or(&reference_chrom.native_id)
-    // );
+    let ref_intensities = Array1::from(reference_chrom.intensities.clone());
+    let ref_rt = &reference_chrom.retention_times;
+    let ref_name = reference_chrom.metadata.get("basename").unwrap_or(&reference_chrom.native_id);
 
-    // Initialize storage for aligned chromatograms
-    let mut aligned_chromatograms = vec![];
+    // Process chromatograms in parallel
+    let aligned_chromatograms = smoothed_tics.par_iter()
+        // .filter(|chrom| {
+        //     let chrom_name = chrom.metadata.get("basename").unwrap_or(&chrom.native_id);
+        //     chrom_name != ref_name
+        // })
+        .map(|chrom| {
+            // Step 1: FFT cross-correlation
+            let query_intensities = Array1::from(chrom.intensities.clone());
+            let cross_corr = fftconvolve::fftcorrelate(&ref_intensities, &query_intensities, fftconvolve::Mode::Full)
+                .unwrap()
+                .to_vec();
 
-    // Align each chromatogram to the reference
-    for (_idx, chrom) in smoothed_tics.iter().enumerate() {
-        // if idx == *reference_idx {
-        //     // Skip aligning the reference chromatogram to itself
-        //     continue;
-        // }
+            // Step 2: Find optimal lag
+            let lag = find_lag_with_max_correlation(&cross_corr);
 
-        log::trace!(
-            "Aligning run: {:?} to reference run",
-            chrom.metadata.get("basename").unwrap_or(&chrom.native_id)
-        );
+            // Step 3: Shift chromatogram
+            let mut aligned_chrom = shift_chromatogram(chrom, lag);
 
-        // Step 1: Perform FFT-based cross-correlation
-        let cross_corr = fftconvolve::fftcorrelate(
-            &Array1::from(reference_chrom.intensities.clone()),
-            &Array1::from(chrom.intensities.clone()),
-            fftconvolve::Mode::Full,
-        )
-        .unwrap()
-        .to_vec();
+            // Step 4: DTW refinement
+            let query_intensities_slice = aligned_chrom.intensities.as_slice();
+            let dtw = DynamicTimeWarping::between(
+                ref_intensities.as_slice().unwrap(),  // Convert Array1 to slice
+                query_intensities_slice      // Use slice directly
+            );
+            let path = dtw.path();
 
-        // Step 2: Find the lag with the maximum correlation
-        let lag = find_lag_with_max_correlation(&cross_corr);
+            // Apply DTW alignment
+            let (refined_rt, refined_intensities): (Vec<_>, Vec<_>) = path.iter()
+                .map(|&(_, j)| (aligned_chrom.retention_times[j], aligned_chrom.intensities[j]))
+                .unzip();
 
-        // Step 3: Shift chromatogram retention times by the computed lag
-        let mut aligned_chrom = shift_chromatogram(chrom, lag);
+            aligned_chrom.retention_times = refined_rt;
+            aligned_chrom.intensities = refined_intensities;
 
-        // Step 4: Local refinement using DTW
-        let (_ref_rt, ref_intensities) = (
-            reference_chrom.retention_times.clone(),
-            reference_chrom.intensities.clone(),
-        );
-        let (query_rt, query_intensities) = (
-            aligned_chrom.retention_times.clone(),
-            aligned_chrom.intensities.clone(),
-        );
+            let mapping = create_fft_dtw_rt_mapping(lag, reference_chrom, &aligned_chrom);
 
-        // Compute the DTW alignment
-        let dtw = DynamicTimeWarping::between(&ref_intensities, &query_intensities);
-
-        // Apply the DTW alignment to the query chromatogram
-        let refined_rt: Vec<f64> = dtw.path().iter().map(|&(_, j)| query_rt[j]).collect();
-
-        let refined_intensities: Vec<f64> = dtw
-            .path()
-            .iter()
-            .map(|&(_, j)| query_intensities[j])
-            .collect();
-
-        // Update the aligned chromatogram with the refined retention times and intensities
-        aligned_chrom.retention_times = refined_rt;
-        aligned_chrom.intensities = refined_intensities;
-
-        // Store the aligned chromatogram
-        aligned_chromatograms.push(AlignedChromatogram {
-            chromatogram: aligned_chrom.clone(),
-            alignment_path: dtw.path().to_vec(), // Store the DTW alignment path
-            lag: Some(lag),
-            rt_mapping: create_fft_dtw_rt_mapping(lag, reference_chrom, &aligned_chrom),
-        });
-    }
+            AlignedChromatogram {
+                chromatogram: aligned_chrom,
+                alignment_path: path.to_vec(),
+                lag: Some(lag),
+                rt_mapping: mapping,
+            }
+        })
+        .collect();
 
     Ok(aligned_chromatograms)
 }

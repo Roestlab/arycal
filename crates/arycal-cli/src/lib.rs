@@ -134,11 +134,11 @@ impl Runner {
         };
 
         // Initialize writers if they don't exist or drop them if they do
-        if self.parameters.alignment.compute_scores.unwrap_or_default() {
-            for osw_access in &feature_access {
-                osw_access.create_feature_alignment_table()?;
-            }
-        }
+        // if self.parameters.alignment.compute_scores.unwrap_or_default() {
+        //     for osw_access in &feature_access {
+        //         osw_access.create_feature_alignment_table()?;
+        //     }
+        // }
 
         for osw_access in &feature_access {
             osw_access.create_feature_ms2_alignment_table()?;
@@ -176,9 +176,9 @@ impl Runner {
             log::debug!("Peak mapping and scoring for batch of {} precursors took: {:?} ({} MiB)", batch.len(), start_time.elapsed(), results.deep_size_of() / 1024 / 1024);
     
             // Write results for this batch
-            if self.parameters.alignment.compute_scores.unwrap_or_default() {
-                self.write_aligned_score_results_to_db(&feature_access, &results)?;
-            }
+            // if self.parameters.alignment.compute_scores.unwrap_or_default() {
+            //     self.write_aligned_score_results_to_db(&feature_access, &results)?;
+            // }
     
             self.write_ms2_alignment_results_to_db(&feature_access, &results)?;
     
@@ -985,7 +985,7 @@ impl Runner {
                 (*precursor_id, runs)
             })
             .collect();
-    
+
         // Fetch all feature data in one batch
         let start_time = Instant::now();
         let all_feature_data = self.feature_access[0]
@@ -1055,6 +1055,13 @@ impl Runner {
             .par_iter()
             .filter_map(|chrom| {
                 let current_run = chrom.chromatogram.metadata.get("basename").unwrap();
+
+                // Check if current run is the reference run, if it is, skip mapping
+                if chrom.rt_mapping[0].get("run1").unwrap() == current_run {
+                    log::trace!("Current run is the reference run, skipping peak mapping for run: {}", current_run);
+                    return None;
+                }
+
                 log::trace!(
                     "Mapping peaks from reference run: {} to current run: {}",
                     chrom.rt_mapping[0].get("run1").unwrap(),
@@ -1108,11 +1115,12 @@ impl Runner {
         /* ------------------------------------------------------------------ */
         /* Score Algined TICs                                         */
         /* ------------------------------------------------------------------ */
-        let alignment_scores = if self.parameters.alignment.compute_scores.unwrap_or_default() {
-            compute_alignment_scores(aligned.aligned_chromatograms.clone())
-        } else {
-            HashMap::new()
-        };
+        // let alignment_scores = if self.parameters.alignment.compute_scores.unwrap_or_default() {
+        //     compute_alignment_scores(aligned.aligned_chromatograms.clone())
+        // } else {
+        //     HashMap::new()
+        // };
+        let alignment_scores  = HashMap::new();
 
         /* ------------------------------------------------------------------ */
         /* Step 5. Score Aligned Peaks                                        */
@@ -1256,6 +1264,8 @@ impl Runner {
                 );
                 osw_access.insert_feature_ms2_alignment_batch(&all_ms2_alignments)?;
             }
+        } else {
+            log::warn!("No MS2 aligned features to write to the database");
         }
     
         Ok(())

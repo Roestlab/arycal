@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use rand::prelude::IndexedRandom;
 use anyhow::Error as AnyHowError;
 use dtw_rs::{Algorithm, DynamicTimeWarping};
+use rayon::prelude::*;
 
 use arycal_cloudpath::sqmass::TransitionGroup;
 
@@ -26,99 +27,83 @@ pub fn align_chromatograms(
     chrom2: &Chromatogram,
     optimal_path: &[(usize, usize)],
 ) -> (Chromatogram, Chromatogram) {
-    let mut aligned_rt = Vec::new();
-    let mut aligned_data1 = Vec::new();
-    let mut aligned_data2 = Vec::new();
+    let mut aligned_rt = Vec::with_capacity(optimal_path.len());
+    let mut aligned_data1 = Vec::with_capacity(optimal_path.len());
+    let mut aligned_data2 = Vec::with_capacity(optimal_path.len());
 
     for &(i, j) in optimal_path {
-        if i > 0 && j > 0 {
-            // Both chromatograms have a point here
-            aligned_rt.push((chrom1.retention_times[i - 1] + chrom2.retention_times[j - 1]) / 2.0); // Average RT
-            aligned_data1.push(chrom1.intensities[i - 1]);
-            aligned_data2.push(chrom2.intensities[j - 1]);
-        } else if i > 0 {
-            // Only chromatogram 1 has a point
-            aligned_rt.push(chrom1.retention_times[i - 1]);
-            aligned_data1.push(chrom1.intensities[i - 1]);
-            aligned_data2.push(0.0); // Padding with zero
-        } else if j > 0 {
-            // Only chromatogram 2 has a point
-            aligned_rt.push(chrom2.retention_times[j - 1]);
-            aligned_data1.push(0.0); // Padding with zero
-            aligned_data2.push(chrom2.intensities[j - 1]);
+        match (i.checked_sub(1), j.checked_sub(1)) {
+            (Some(i), Some(j)) => {
+                aligned_rt.push((chrom1.retention_times[i] + chrom2.retention_times[j]) / 2.0);
+                aligned_data1.push(chrom1.intensities[i]);
+                aligned_data2.push(chrom2.intensities[j]);
+            }
+            (Some(i), None) => {
+                aligned_rt.push(chrom1.retention_times[i]);
+                aligned_data1.push(chrom1.intensities[i]);
+                aligned_data2.push(0.0);
+            }
+            (None, Some(j)) => {
+                aligned_rt.push(chrom2.retention_times[j]);
+                aligned_data1.push(0.0);
+                aligned_data2.push(chrom2.intensities[j]);
+            }
+            _ => continue,
         }
     }
 
-    // TODO: Add metadata for the aligned chromatogram, and corresponding aligned run?
-    let mut add_meta = HashMap::new();
-    add_meta.insert("is_aligned".to_string(), "true".to_string());
-    // Add file name from Chromatogram metadata if present
-    let mut add_meta2 = add_meta.clone();
-    if let Some(file_name) = chrom1.metadata.get("file") {
-        add_meta.insert("file".to_string(), file_name.clone());
-    }
-    if let Some(basename) = chrom1.metadata.get("basename") {
-        add_meta.insert("basename".to_string(), basename.clone());
-    }
+    // Reuse metadata with additional alignment info
+    let mut meta1 = chrom1.metadata.clone();
+    meta1.insert("is_aligned".to_string(), "true".to_string());
+    meta1.insert("reference_run".to_string(), 
+        chrom1.metadata.get("basename").unwrap_or(&chrom1.native_id).clone());
 
-    if let Some(file_name) = chrom2.metadata.get("file") {
-        add_meta2.insert("file".to_string(), file_name.clone());
-    }
-    if let Some(basename) = chrom2.metadata.get("basename") {
-        add_meta2.insert("basename".to_string(), basename.clone());
-    }
+    let mut meta2 = chrom2.metadata.clone();
+    meta2.insert("is_aligned".to_string(), "true".to_string());
+    meta2.insert("reference_run".to_string(),
+        chrom1.metadata.get("basename").unwrap_or(&chrom1.native_id).clone());
 
-    // Create new Chromatograms for the aligned data
-    let tic_chrom1 = Chromatogram {
-        id: chrom1.id,
-        native_id: chrom1.native_id.clone(),
-        retention_times: aligned_rt.clone(),
-        intensities: aligned_data1,
-        metadata: add_meta, 
-    };
-
-    let tic_chrom2 = Chromatogram {
-        id: chrom2.id,
-        native_id: chrom2.native_id.clone(),
-        retention_times: aligned_rt,
-        intensities: aligned_data2,
-        metadata: add_meta2, 
-    };
-
-    (tic_chrom1, tic_chrom2)
+    (
+        Chromatogram {
+            retention_times: aligned_rt.clone(),
+            intensities: aligned_data1,
+            metadata: meta1,
+            ..chrom1.clone()
+        },
+        Chromatogram {
+            retention_times: aligned_rt,
+            intensities: aligned_data2,
+            metadata: meta2,
+            ..chrom2.clone()
+        }
+    )
 }
 
 
 /// Creates a mapping between the original retention times (RT) of two chromatograms based on the optimal path.
-pub fn create_rt_mapping(
+fn create_rt_mapping(
     optimal_path: &[(usize, usize)],
     chrom1: &Chromatogram,
     chrom2: &Chromatogram,
 ) -> Vec<HashMap<String, String>> {
-    let mut rt1_mapped = Vec::new();
-    let mut rt2_mapped = Vec::new();
+    let run1_name = chrom1.metadata.get("basename").unwrap_or(&chrom1.native_id);
+    let run2_name = chrom2.metadata.get("basename").unwrap_or(&chrom2.native_id);
 
-    for &(i, j) in optimal_path {
-        if i > 0 && j > 0 {
-            rt1_mapped.push(chrom1.retention_times[i - 1]);
-            rt2_mapped.push(chrom2.retention_times[j - 1]);
-        }
-    }
-
-    // Create a mapping as a vector of HashMaps
-    let mut mapping = Vec::new();
-    
-    for (r1, r2) in rt1_mapped.iter().zip(rt2_mapped.iter()) {
-        let mut entry = HashMap::new();
-        entry.insert("rt1".to_string(), r1.to_string());
-        entry.insert("rt2".to_string(), r2.to_string());
-        entry.insert("alignment".to_string(), format!("({}, {})", r1, r2));
-        entry.insert("run1".to_string(), chrom1.metadata.get("basename").unwrap_or(&chrom1.native_id).clone());
-        entry.insert("run2".to_string(), chrom2.metadata.get("basename").unwrap_or(&chrom2.native_id).clone());
-        mapping.push(entry);
-    }
-
-    mapping
+    optimal_path.iter()
+        .filter(|&&(i, j)| i > 0 && j > 0)
+        .map(|&(i, j)| {
+            let rt1 = chrom1.retention_times[i - 1];
+            let rt2 = chrom2.retention_times[j - 1];
+            
+            let mut entry = HashMap::with_capacity(5);
+            entry.insert("rt1".to_string(), rt1.to_string());
+            entry.insert("rt2".to_string(), rt2.to_string());
+            entry.insert("alignment".to_string(), format!("({}, {})", rt1, rt2));
+            entry.insert("run1".to_string(), run1_name.clone());
+            entry.insert("run2".to_string(), run2_name.clone());
+            entry
+        })
+        .collect()
 }
 
 
@@ -130,15 +115,20 @@ pub fn create_rt_mapping(
 /// 
 /// # Returns
 /// - A vector of aligned chromatograms with their alignment paths
-pub fn star_align_tics(smoothed_tics: Vec<Chromatogram>, params: &AlignmentConfig) -> Result<Vec<AlignedChromatogram>, AnyHowError> {
-    // Ensure we have at least two tics to align
+pub fn star_align_tics(
+    smoothed_tics: Vec<Chromatogram>,
+    params: &AlignmentConfig,
+) -> Result<Vec<AlignedChromatogram>, AnyHowError> {
+    // Early return if insufficient chromatograms
     if smoothed_tics.len() < 2 {
         return Err(AnyHowError::msg("At least two chromatograms are required for alignment"));
     }
 
-    // Randomly pick a reference chromatogram if not specified in params
+    // Select reference chromatogram
     let reference_chrom = if let Some(ref_chrom) = &params.reference_run {
-        smoothed_tics.iter().find(|x| x.metadata.get("basename").unwrap_or(&x.native_id) == &extract_basename(ref_chrom)).unwrap()
+        smoothed_tics.iter()
+            .find(|x| x.metadata.get("basename").unwrap_or(&x.native_id) == &extract_basename(ref_chrom))
+            .ok_or_else(|| AnyHowError::msg("Reference chromatogram not found"))?
     } else {
         let mut rng = rand::rng();
         let binding = (0..smoothed_tics.len()).collect::<Vec<_>>();
@@ -146,51 +136,39 @@ pub fn star_align_tics(smoothed_tics: Vec<Chromatogram>, params: &AlignmentConfi
         &smoothed_tics[*reference_idx]
     };
 
-    // println!(
-    //     "Selected reference run: {:?}",
-    //     reference_chrom.metadata.get("basename").unwrap_or(&reference_chrom.native_id)
-    // );
+    let ref_basename = reference_chrom.metadata.get("basename").unwrap_or(&reference_chrom.native_id);
+    log::trace!("Selected reference run: {}", ref_basename);
 
-    // Initialize storage for aligned chromatograms
-    let mut aligned_chromatograms = vec![];
+    // Pre-compute reference intensities once
+    let ref_intensities = &reference_chrom.intensities;
 
-    // HashSet to track already aligned chromatograms (avoid redundant work)
-    let mut aligned_chromatogram_indices = HashSet::new();
+    // Process chromatograms in parallel
+    let aligned_chromatograms: Vec<_> = smoothed_tics.par_iter()
+        .enumerate()
+        .filter_map(|(idx, chrom)| {
+            let chrom_basename = chrom.metadata.get("basename").unwrap_or(&chrom.native_id);
+            // if chrom_basename == ref_basename {
+            //     return None; // Skip reference chromatogram
+            // }
 
-    // Align each chromatogram to the reference
-    for (idx, chrom) in smoothed_tics.iter().enumerate() {
-        // println!(
-        //     "Aligning run: {:?} to reference run",
-        //     chrom.metadata.get("basename").unwrap_or(&chrom.native_id)
-        // );
+            log::trace!("Aligning run: {} to reference", chrom_basename);
 
-        let (_ref_rt, ref_intensities) = (
-            reference_chrom.retention_times.clone(),
-            reference_chrom.intensities.clone(),
-        );
-        let (_query_rt, query_intensities) = (
-            chrom.retention_times.clone(),
-            chrom.intensities.clone(),
-        );
+            // Compute DTW alignment
+            let dtw = DynamicTimeWarping::between(ref_intensities, &chrom.intensities);
+            let path = dtw.path();
 
-        // Compute the DTW alignment
-        let dtw = DynamicTimeWarping::between(&ref_intensities, &query_intensities);
+            // Align chromatograms
+            let (_, aligned_chrom) = align_chromatograms(reference_chrom, chrom, &path);
+            let rt_mapping = create_rt_mapping(&path, reference_chrom, chrom);
 
-        // Align the chromatogram to the reference
-        let (_aligned_reference, aligned_chrom) = align_chromatograms(reference_chrom, chrom, &dtw.path());
-        let rt_mapping = create_rt_mapping(&dtw.path(), reference_chrom, chrom);
-
-        // Store the aligned chromatogram
-        if !aligned_chromatogram_indices.contains(&idx) {
-            aligned_chromatograms.push(AlignedChromatogram {
-                chromatogram: aligned_chrom.clone(),
-                alignment_path: dtw.path().clone(),
+            Some(AlignedChromatogram {
+                chromatogram: aligned_chrom,
+                alignment_path: path.to_vec(),
                 lag: None,
-                rt_mapping: rt_mapping.clone(),
-            });
-            aligned_chromatogram_indices.insert(idx);
-        }
-    }
+                rt_mapping,
+            })
+        })
+        .collect();
 
     Ok(aligned_chromatograms)
 }

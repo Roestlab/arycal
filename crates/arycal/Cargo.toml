@@ -9,7 +9,7 @@ arycal-cloudpath = { path = "../arycal-cloudpath/"}
 
 rayon = "1.5.1"
 log = "0.4.14"
-ndarray = "0.15"
+ndarray = { version = "0.15", features = ["rayon"] }
 # ndarray = { version = "0.15", features = ["blas"] }
 # blas-src = { version = "0.10", features = ["openblas"] }
 rusqlite = { version = "0.33.0", features = ["bundled"] }  

@@ -112,6 +112,10 @@ pub struct AlignedTransitionScores {
     pub feature_id: i64,
     /// Transition ID
     pub transition_id: i64,
+    /// Run ID
+    pub run_id: i64,
+    /// Filename of the run that was aligned.
+    pub aligned_filename: String,
     /// Label to group peaks based on target/decoy aligned peak
     pub label: i32,
     /// Scores for the peak matching.
