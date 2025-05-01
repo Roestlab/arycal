@@ -74,13 +74,30 @@ impl ChromatogramReader for DuckDBParquetChromatogramReader {
             DuckDBParquetError::DatabaseError(format!("Failed to create DuckDB connection: {}", e))
         })?;
 
-        // Enable Parquet extension
-        conn.execute("INSTALL 'parquet';", []).map_err(|e| {
-            DuckDBParquetError::DatabaseError(format!("Failed to install parquet extension: {}", e))
-        })?;
-        conn.execute("LOAD 'parquet';", []).map_err(|e| {
-            DuckDBParquetError::DatabaseError(format!("Failed to load parquet extension: {}", e))
-        })?;
+        // // Enable Parquet extension
+        // conn.execute("INSTALL 'parquet';", []).map_err(|e| {
+        //     DuckDBParquetError::DatabaseError(format!("Failed to install parquet extension: {}", e))
+        // })?;
+        // conn.execute("LOAD 'parquet';", []).map_err(|e| {
+        //     DuckDBParquetError::DatabaseError(format!("Failed to load parquet extension: {}", e))
+        // })?;
+
+        // Auto-load bundled parquet extension
+        conn.execute_batch(
+            "SET autoinstall_known_extensions=true; 
+            SET autoload_known_extensions=true;"
+        )?;
+
+        // Verify extension loaded
+        let loaded: bool = conn.query_row(
+            "SELECT loaded FROM duckdb_extensions() WHERE extension_name = 'parquet'",
+            [],
+            |row| row.get(0),
+        )?;
+        
+        if !loaded {
+            return Err(anyhow!("Failed to load parquet extension"));
+        }
 
         Ok(DuckDBParquetChromatogramReader {
             file: db_path.to_string(),
