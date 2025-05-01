@@ -22,4 +22,4 @@ deepsize = "0.2.0"
 rayon = "1.5"
 #parquet = "55.0.0"
 #arrow = "55.0.0"
-duckdb = { version = "1.2.2", features = ["bundled"] }
+duckdb = { version = "1.2.2", features = ["bundled", "parquet"] }
