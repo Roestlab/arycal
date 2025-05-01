@@ -218,114 +218,136 @@ impl Runner {
     
 
     #[cfg(feature = "mpi")]
-    pub fn run(&self) -> anyhow::Result<()> {
+    pub fn run(&mut self) -> anyhow::Result<()> {
         // Initialize MPI
         let universe = mpi::initialize().unwrap();
         let world = universe.world();
-        let rank = world.rank();  // Current process rank
-        let size = world.size();  // Total number of processes
-
-        let hostname = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
-        log::info!("MPI initialized: rank = {}, size = {}, hostname = {}", rank, size, hostname);
-
-        // Determine chunking for distributing precursors
-        let total_precursors = self.precursor_map.len();
-        let chunk_size = (total_precursors + size as usize - 1) / size as usize; // Ensure even distribution
-        let start = rank as usize * chunk_size;
-        let end = std::cmp::min(start + chunk_size, total_precursors);
-
-        let local_chunk = &self.precursor_map[start..end];
-        log::info!(
-            "Process {}: Processing chunk {} to {} ({} precursors)",
-            rank, start, end, local_chunk.len()
-        );
-
-        // Parallel processing using Rayon within each node
-        let local_results: Vec<Result<HashMap<i32, PrecursorAlignmentResult>, ArycalError>> = local_chunk
-            .par_chunks(self.parameters.alignment.batch_size.unwrap_or_default())
-            .map(|batch| {
-                let mut batch_results = Vec::new();
-                let mut progress = None;
-                if !self.parameters.disable_progress_bar {
-                    progress = Some(Progress::new(
-                        batch.len(),
-                        format!(
-                            "[arycal] Node {} - Rank {} - Thread {:?} - Aligning precursors",
-                            hostname,
-                            rank,
-                            rayon::current_thread_index().unwrap()
-                        )
-                        .as_str(),
-                    ));
-                }
-                let start_time = Instant::now();
-                for precursor in batch {
-                    let result = self.process_precursor(precursor).map_err(|e| ArycalError::Custom(e.to_string()));
-                    batch_results.push(result);
-                    if !self.parameters.disable_progress_bar {
-                        progress.as_ref().expect("The Progess tqdm logger is not enabled").inc();
-                    }
-                }
-                let end_time = Instant::now();
-                if self.parameters.disable_progress_bar {
-                    log::info!("Node {} - Rank {} - Thread {:?} - Batch of {} precursors aligned in {:?}", hostname, rank, rayon::current_thread_index().unwrap_or(0), batch.len(), end_time.duration_since(start_time));
-                }
-                Ok(batch_results)
-            })
-            .collect::<Result<Vec<_>, ArycalError>>()?
-            .into_iter()
-            .flatten()
-            .collect();
-
-        // Serialize results
-        let serialized_results = bincode::serialize(&local_results)?;
-
-        // Gather results at root (rank 0)
-        let gathered_results = if rank == 0 {
-            let mut all_results = Vec::new();
-            all_results.extend(local_results);
-
-            for process_rank in 1..size {
-                log::info!("Root process receiving results from process {}", process_rank);
-                let (received_bytes, _status) = world.process_at_rank(process_rank).receive_vec::<u8>();
-                let received_results: Vec<Result<HashMap<i32, PrecursorAlignmentResult>, ArycalError>> =
-                    bincode::deserialize(&received_bytes)?;
-                all_results.extend(received_results);
-            }
-
-            all_results
-        } else {
-            log::info!("Process {} sending results to root process", rank);
-            world.process_at_rank(0).send(&serialized_results);
-            Vec::new() // Non-root processes do not keep results
-        };
-
-        // Only root process writes results to the database
+        let rank = world.rank();
+        let size = world.size();
+    
+        // Only rank 0 logs system info
         if rank == 0 {
-
-            // Write out to separate file if scores_output_file is provided
-            let feature_access = if let Some(scores_output_file) = &self.parameters.alignment.scores_output_file {
+            let mut system = sysinfo::System::new_all();
+            system.refresh_all();
+            let total_memory = system.total_memory();
+            let starting_memory = system.used_memory();
+    
+            log::debug!("System name:             {:?}", System::name());
+            log::debug!("System kernel version:   {:?}", System::kernel_version());
+            log::debug!("System OS version:       {:?}", System::os_version());
+            log::debug!("System host name:        {:?}", System::host_name());
+    
+            log::info!("Total memory: {} GiB", total_memory / 1024 / 1024 / 1024);
+            log::info!("Used memory: {} GiB", starting_memory / 1024 / 1024 / 1024);
+            log::debug!("Total swap: {} GiB", system.total_swap() / 1024 / 1024 / 1024);
+            log::debug!("Used swap: {} GiB", system.used_swap() / 1024 / 1024 / 1024);
+            log::info!("System CPU count: {}", system.cpus().len());
+        }
+    
+        let precursor_map = &self.precursor_map;
+        let total_count = precursor_map.len();
+        let batch_size = self.parameters.alignment.batch_size.unwrap_or(500);
+        let global_start = Instant::now();
+    
+        if rank == 0 {
+            log::info!("Starting alignment for {} precursors", total_count);
+        }
+    
+        // Initialize feature access (only rank 0 creates tables)
+        let feature_access = if rank == 0 {
+            if let Some(scores_output_file) = &self.parameters.alignment.scores_output_file {
                 let scores_output_file = scores_output_file.clone();
-                let osw_access = OswAccess::new(&scores_output_file)?;
+                let osw_access = OswAccess::new(&scores_output_file, false)?;
                 vec![osw_access]
             } else {
                 self.feature_access.clone()
-            };
-
-            if self.parameters.alignment.compute_scores.unwrap_or_default() {
-                // Write FEATURE_ALIGNMENT results to the database
-                self.write_aligned_score_results_to_db(&feature_access, &gathered_results)?;
             }
-            self.write_ms2_alignment_results_to_db(&feature_access, &gathered_results)?;
-
-            if self.parameters.filters.include_identifying_transitions.unwrap_or_default() && self.parameters.alignment.compute_scores.unwrap_or_default() {
-                self.write_transition_alignment_results_to_db(&feature_access, &gathered_results)?;   
+        } else {
+            Vec::new() // Other ranks don't need this
+        };
+    
+        // Only rank 0 creates tables
+        if rank == 0 {
+            for osw_access in &feature_access {
+                osw_access.create_feature_ms2_alignment_table()?;
             }
-
-            let run_time = (Instant::now() - self.start).as_secs();
-            info!("Alignment completed in {}s", run_time);
+    
+            if self.parameters.filters.include_identifying_transitions.unwrap_or_default() 
+                && self.parameters.alignment.compute_scores.unwrap_or_default() {
+                for osw_access in &feature_access {
+                    osw_access.create_feature_transition_alignment_table()?;
+                }
+            }
         }
-
+    
+        // Distribute work
+        let mut start_idx = (rank as usize) * batch_size;
+        while start_idx < total_count {
+            let end_idx = (start_idx + batch_size).min(total_count);
+            let batch_start_time = Instant::now();
+            
+            log::info!("Rank {} processing batch {}-{}", rank, start_idx, end_idx);
+    
+            // Slice the batch
+            let batch = &precursor_map[start_idx..end_idx];
+    
+            // Process the batch
+            let start_time = Instant::now();
+            let xics_batch = self.prepare_xics_batch(batch)?;
+            log::debug!("[Rank {}] XIC extraction for batch of {} precursors took: {:?} ({} MiB)", 
+                rank, batch.len(), start_time.elapsed(), xics_batch.deep_size_of() / 1024 / 1024);
+            let xic_batch_size = xics_batch.deep_size_of();
+    
+            let start_time = Instant::now();
+            let aligned_batch = self.align_tics_batch(xics_batch)?;
+            log::debug!("[Rank {}] TIC alignment for batch of {} precursors took: {:?} ({} MiB)", 
+                rank, batch.len(), start_time.elapsed(), aligned_batch.deep_size_of() / 1024 / 1024);
+            let aligned_batch_size = aligned_batch.deep_size_of();
+    
+            let start_time = Instant::now();
+            let results: HashMap<i32, PrecursorAlignmentResult> = self.process_peak_mappings_batch(aligned_batch, batch)?;
+            log::debug!("[Rank {}] Peak mapping and scoring for batch of {} precursors took: {:?} ({} MiB)", 
+                rank, batch.len(), start_time.elapsed(), results.deep_size_of() / 1024 / 1024);
+    
+            // Write results (each rank writes its own part)
+            // You might want to coordinate this to avoid conflicts
+            self.write_ms2_alignment_results_to_db(&feature_access, &results)?;
+    
+            if self.parameters.filters.include_identifying_transitions.unwrap_or_default()
+                && self.parameters.alignment.compute_scores.unwrap_or_default() {
+                self.write_transition_alignment_results_to_db(&feature_access, &results)?;
+            }
+    
+            let elapsed = batch_start_time.elapsed();
+            log::info!(
+                "[Rank {}] Batch {}-{} processed in {:.2?} ({:.2}/min) - {} MiB",
+                rank,
+                start_idx,
+                end_idx,
+                elapsed,
+                ((end_idx - start_idx) as f64 / (elapsed.as_secs_f64() / 60.0)).floor(),
+                (xic_batch_size + aligned_batch_size + results.deep_size_of()) / 1024 / 1024
+            );
+    
+            start_idx += (size as usize) * batch_size; // Jump to next batch for this rank
+        }
+    
+        // Synchronize and gather final stats if needed
+        world.barrier();
+    
+        if rank == 0 {
+            let total_elapsed = global_start.elapsed();
+            log::info!(
+                "Aligned and scored {} precursors in {:?} ({:.2}/sec)",
+                total_count,
+                total_elapsed,
+                total_count as f64 / total_elapsed.as_secs_f64()
+            );
+    
+            let run_time = (Instant::now() - self.start).as_secs();
+            info!("finished in {}s", run_time);
+        }
+    
         Ok(())
     }
 

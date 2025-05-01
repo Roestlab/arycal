@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::f64;
+use arycal_common::chromatogram::AlignedRTPointPair;
 use arycal_common::config::{AlignmentConfig, SmoothingConfig};
 use rand::seq::IndexedRandom;
 use union_find::{QuickFindUf, UnionBySize, UnionFind};
@@ -134,7 +135,6 @@ impl ReferenceMethod {
     }
     
 }
-
 
 
 /// Calculates the Euclidean distance between two chromatograms.
@@ -564,57 +564,93 @@ fn remove_overlapping_peaks(peak_mappings: Vec<PeakMapping>) -> Vec<PeakMapping>
     filtered_peaks
 }
 
+// /// Maps a retention time from the reference chromatogram to the aligned chromatogram.
+// fn map_retention_time(rt: f64, rt_mapping: &[HashMap<String, f64>]) -> f64 {
+//     // If the mapping is empty, return the original RT (no mapping)
+//     // TODO: Should we panic here instead?
+//     if rt_mapping.is_empty() {
+//         return rt;
+//     }
+
+//     // Find the nearest points in the mapping for interpolation
+//     let mut lower_idx = 0;
+//     let mut upper_idx = rt_mapping.len() - 1;
+
+//     // Binary search to find the nearest lower and upper points
+//     for (idx, map) in rt_mapping.iter().enumerate() {
+//         let rt1 = *map
+//             .get("rt1").unwrap();
+//         if rt1 <= rt {
+//             lower_idx = idx;
+//         } else {
+//             upper_idx = idx;
+//             break;
+//         }
+//     }
+
+//     // Get the lower and upper RT pairs
+//     let lower_map = &rt_mapping[lower_idx];
+//     let upper_map = &rt_mapping[upper_idx];
+
+//     let rt1_lower = *lower_map
+//         .get("rt1").unwrap();
+//     let rt2_lower = *lower_map
+//         .get("rt2").unwrap();
+
+//     let rt1_upper = *upper_map
+//         .get("rt1").unwrap();
+//     let rt2_upper = *upper_map
+//         .get("rt2").unwrap();
+
+//     // If the RT matches exactly, return the mapped RT
+//     if rt == rt1_lower {
+//         return rt2_lower;
+//     }
+//     if rt == rt1_upper {
+//         return rt2_upper;
+//     }
+
+//     // Interpolate between the nearest points
+//     let slope = (rt2_upper - rt2_lower) / (rt1_upper - rt1_lower);
+//     let mapped_rt = rt2_lower + slope * (rt - rt1_lower);
+
+//     mapped_rt
+// }
+
+
 /// Maps a retention time from the reference chromatogram to the aligned chromatogram.
-fn map_retention_time(rt: f64, rt_mapping: &[HashMap<String, f64>]) -> f64 {
-    // If the mapping is empty, return the original RT (no mapping)
-    // TODO: Should we panic here instead?
+fn map_retention_time(rt: f64, rt_mapping: &[AlignedRTPointPair]) -> f64 {
+    // Handle empty mapping case
     if rt_mapping.is_empty() {
         return rt;
     }
 
-    // Find the nearest points in the mapping for interpolation
-    let mut lower_idx = 0;
-    let mut upper_idx = rt_mapping.len() - 1;
+    // Convert input to f32 for comparison (since our mapping uses f32)
+    let rt_f32 = rt as f32;
 
-    // Binary search to find the nearest lower and upper points
-    for (idx, map) in rt_mapping.iter().enumerate() {
-        let rt1 = *map
-            .get("rt1").unwrap();
-        if rt1 <= rt {
-            lower_idx = idx;
-        } else {
-            upper_idx = idx;
-            break;
-        }
+    // Binary search to find the insertion point
+    let idx = match rt_mapping.binary_search_by(|pair| pair.rt1.partial_cmp(&rt_f32).unwrap()) {
+        Ok(exact_idx) => return rt_mapping[exact_idx].rt2 as f64, // Exact match
+        Err(insert_idx) => insert_idx,
+    };
+
+    // Handle edge cases
+    if idx == 0 {
+        return rt_mapping[0].rt2 as f64;
+    }
+    if idx >= rt_mapping.len() {
+        return rt_mapping.last().unwrap().rt2 as f64;
     }
 
-    // Get the lower and upper RT pairs
-    let lower_map = &rt_mapping[lower_idx];
-    let upper_map = &rt_mapping[upper_idx];
+    // Get the neighboring points for interpolation
+    let lower = &rt_mapping[idx - 1];
+    let upper = &rt_mapping[idx];
 
-    let rt1_lower = *lower_map
-        .get("rt1").unwrap();
-    let rt2_lower = *lower_map
-        .get("rt2").unwrap();
+    // Linear interpolation
+    let ratio = (rt_f32 - lower.rt1) / (upper.rt1 - lower.rt1);
+    let mapped_rt = lower.rt2 + ratio * (upper.rt2 - lower.rt2);
 
-    let rt1_upper = *upper_map
-        .get("rt1").unwrap();
-    let rt2_upper = *upper_map
-        .get("rt2").unwrap();
-
-    // If the RT matches exactly, return the mapped RT
-    if rt == rt1_lower {
-        return rt2_lower;
-    }
-    if rt == rt1_upper {
-        return rt2_upper;
-    }
-
-    // Interpolate between the nearest points
-    let slope = (rt2_upper - rt2_lower) / (rt1_upper - rt1_lower);
-    let mapped_rt = rt2_lower + slope * (rt - rt1_lower);
-
-    mapped_rt
+    mapped_rt as f64
 }
 
 /// Finds the closest retention time in the aligned feature's exp_rt vector.
@@ -785,6 +821,88 @@ pub fn apply_post_alignment_to_chromatogram(
     aligned_chromatogram
 }
 
+// /// Reverses the RT mapping to convert an aligned RT back to the original RT space.
+// ///
+// /// # Parameters
+// /// - `aligned_rt`: The RT value in the aligned space.
+// /// - `aligned_chromatogram`: The aligned chromatogram containing the alignment path, lag, and RT mapping.
+// /// - `alignment_config`: The alignment configuration to determine the alignment method and parameters.
+// ///
+// /// # Returns
+// /// - The original RT value corresponding to the aligned RT.
+// pub fn reverse_rt_mapping(
+//     aligned_rt: f64,
+//     aligned_chromatogram: &AlignedChromatogram,
+//     alignment_config: &AlignmentConfig,
+// ) -> Option<f64> {
+    
+//     match alignment_config.method.to_lowercase().as_str() {
+//         "dtw" => {
+//             log::debug!("Getting original RT for aligned RT: {} using DTW alignment", aligned_rt); 
+
+//             // Use rt_mapping to get index where target_rt is closest to 'rt1'
+//             let ref_rts = aligned_chromatogram.rt_mapping.iter().map(|m| *m.get("rt1").unwrap()).collect::<Vec<f64>>();
+
+//             let closest_index = find_closest_index(&ref_rts, aligned_rt)?;
+
+//             // Map back to the original RT using the alignment path
+//             let query_rts = aligned_chromatogram.rt_mapping.iter().map(|m| *m.get("rt2").unwrap()).collect::<Vec<f64>>();
+
+//             Some(query_rts[closest_index])
+//         }
+//         "fft" => {
+//             log::debug!("Getting original RT for aligned RT: {} using FFT alignment", aligned_rt);
+//             // For FFT, use the lag to reverse the mapping
+//             let lag = aligned_chromatogram.lag? as f64;
+//             Some(aligned_rt + lag)
+//         }
+//         "fftdtw" => {
+//             log::debug!("Getting original RT for aligned RT: {} using FFT-DTW alignment", aligned_rt);
+//             // For FFT-DTW, first reverse the FFT shift, then reverse the DTW mapping
+//             let lag = aligned_chromatogram.lag? as f64;
+//             let shifted_rt = aligned_rt + lag;
+
+//             // Use the alignment path to reverse the DTW mapping
+//             let ref_rts = aligned_chromatogram.rt_mapping.iter().map(|m| *m.get("rt1").unwrap()).collect::<Vec<f64>>();
+
+//             let closest_index = find_closest_index(&ref_rts, shifted_rt)?;
+
+//             // Map back to the original RT using the alignment path
+//             let query_rts = aligned_chromatogram.rt_mapping.iter().map(|m| *m.get("rt2").unwrap()).collect::<Vec<f64>>();
+
+//             Some(query_rts[closest_index])
+//         }
+//         _ => {
+//             // Default to DTW behavior if the method is unknown
+//             log::debug!("Getting original RT for aligned RT: {} using default DTW alignment", aligned_rt);
+
+//             // Use rt_mapping to get index where target_rt is closest to 'rt1'
+//             let ref_rts = aligned_chromatogram.rt_mapping.iter().map(|m| *m.get("rt1").unwrap()).collect::<Vec<f64>>();
+
+//             let closest_index = find_closest_index(&ref_rts, aligned_rt)?;
+
+//             // Map back to the original RT using the alignment path
+//             let query_rts = aligned_chromatogram.rt_mapping.iter().map(|m| *m.get("rt2").unwrap()).collect::<Vec<f64>>();
+
+//             Some(query_rts[closest_index])
+//         }
+//     }
+// }
+
+// /// Helper function to find the index of the closest value in a vector.
+// fn find_closest_index(values: &[f64], target: f64) -> Option<usize> {
+//     values
+//         .iter()
+//         .enumerate()
+//         .min_by(|(_, &a), (_, &b)| {
+//             let diff_a = (a - target).abs();
+//             let diff_b = (b - target).abs();
+//             diff_a.partial_cmp(&diff_b).unwrap_or(Ordering::Equal)
+//         })
+//         .map(|(index, _)| index)
+// }
+
+
 /// Reverses the RT mapping to convert an aligned RT back to the original RT space.
 ///
 /// # Parameters
@@ -799,69 +917,75 @@ pub fn reverse_rt_mapping(
     aligned_chromatogram: &AlignedChromatogram,
     alignment_config: &AlignmentConfig,
 ) -> Option<f64> {
+    let aligned_rt_f32 = aligned_rt as f32;
     
     match alignment_config.method.to_lowercase().as_str() {
         "dtw" => {
-            log::debug!("Getting original RT for aligned RT: {} using DTW alignment", aligned_rt); 
-
-            // Use rt_mapping to get index where target_rt is closest to 'rt1'
-            let ref_rts = aligned_chromatogram.rt_mapping.iter().map(|m| *m.get("rt1").unwrap()).collect::<Vec<f64>>();
-
-            let closest_index = find_closest_index(&ref_rts, aligned_rt)?;
-
-            // Map back to the original RT using the alignment path
-            let query_rts = aligned_chromatogram.rt_mapping.iter().map(|m| *m.get("rt2").unwrap()).collect::<Vec<f64>>();
-
-            Some(query_rts[closest_index])
+            log::debug!("Getting original RT for aligned RT: {} using DTW alignment", aligned_rt);
+            
+            // Find the point with rt2 closest to aligned_rt
+            let closest_index = find_closest_index_by(
+                &aligned_chromatogram.rt_mapping,
+                |pair| pair.rt2,
+                aligned_rt_f32
+            )?;
+            
+            Some(aligned_chromatogram.rt_mapping[closest_index].rt1 as f64)
         }
         "fft" => {
             log::debug!("Getting original RT for aligned RT: {} using FFT alignment", aligned_rt);
-            // For FFT, use the lag to reverse the mapping
             let lag = aligned_chromatogram.lag? as f64;
             Some(aligned_rt + lag)
         }
         "fftdtw" => {
             log::debug!("Getting original RT for aligned RT: {} using FFT-DTW alignment", aligned_rt);
-            // For FFT-DTW, first reverse the FFT shift, then reverse the DTW mapping
             let lag = aligned_chromatogram.lag? as f64;
-            let shifted_rt = aligned_rt + lag;
-
-            // Use the alignment path to reverse the DTW mapping
-            let ref_rts = aligned_chromatogram.rt_mapping.iter().map(|m| *m.get("rt1").unwrap()).collect::<Vec<f64>>();
-
-            let closest_index = find_closest_index(&ref_rts, shifted_rt)?;
-
-            // Map back to the original RT using the alignment path
-            let query_rts = aligned_chromatogram.rt_mapping.iter().map(|m| *m.get("rt2").unwrap()).collect::<Vec<f64>>();
-
-            Some(query_rts[closest_index])
+            let shifted_rt = (aligned_rt + lag) as f32;
+            
+            let closest_index = find_closest_index_by(
+                &aligned_chromatogram.rt_mapping,
+                |pair| pair.rt2,
+                shifted_rt
+            )?;
+            
+            Some(aligned_chromatogram.rt_mapping[closest_index].rt1 as f64)
         }
         _ => {
-            // Default to DTW behavior if the method is unknown
             log::debug!("Getting original RT for aligned RT: {} using default DTW alignment", aligned_rt);
-
-            // Use rt_mapping to get index where target_rt is closest to 'rt1'
-            let ref_rts = aligned_chromatogram.rt_mapping.iter().map(|m| *m.get("rt1").unwrap()).collect::<Vec<f64>>();
-
-            let closest_index = find_closest_index(&ref_rts, aligned_rt)?;
-
-            // Map back to the original RT using the alignment path
-            let query_rts = aligned_chromatogram.rt_mapping.iter().map(|m| *m.get("rt2").unwrap()).collect::<Vec<f64>>();
-
-            Some(query_rts[closest_index])
+            let closest_index = find_closest_index_by(
+                &aligned_chromatogram.rt_mapping,
+                |pair| pair.rt2,
+                aligned_rt_f32
+            )?;
+            
+            Some(aligned_chromatogram.rt_mapping[closest_index].rt1 as f64)
         }
     }
 }
 
-/// Helper function to find the index of the closest value in a vector.
-fn find_closest_index(values: &[f64], target: f64) -> Option<usize> {
-    values
-        .iter()
-        .enumerate()
-        .min_by(|(_, &a), (_, &b)| {
-            let diff_a = (a - target).abs();
-            let diff_b = (b - target).abs();
-            diff_a.partial_cmp(&diff_b).unwrap_or(Ordering::Equal)
-        })
-        .map(|(index, _)| index)
+/// Helper function to find the index of the element with value closest to target
+fn find_closest_index_by<T, F>(
+    slice: &[T],
+    extractor: F,
+    target: f32
+) -> Option<usize>
+where
+    F: Fn(&T) -> f32
+{
+    if slice.is_empty() {
+        return None;
+    }
+
+    let mut closest_index = 0;
+    let mut smallest_diff = (extractor(&slice[0]) - target).abs();
+
+    for (i, item) in slice.iter().enumerate().skip(1) {
+        let current_diff = (extractor(item) - target).abs();
+        if current_diff < smallest_diff {
+            smallest_diff = current_diff;
+            closest_index = i;
+        }
+    }
+
+    Some(closest_index)
 }

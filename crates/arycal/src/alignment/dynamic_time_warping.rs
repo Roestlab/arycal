@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use arycal_common::chromatogram::AlignedRTPointPair;
 use rand::prelude::IndexedRandom;
 use anyhow::Error as AnyHowError;
 use dtw_rs::{Algorithm, DynamicTimeWarping};
@@ -81,27 +82,41 @@ pub fn align_chromatograms(
 
 
 /// Creates a mapping between the original retention times (RT) of two chromatograms based on the optimal path.
+// fn create_rt_mapping(
+//     optimal_path: &[(usize, usize)],
+//     chrom1: &Chromatogram,
+//     chrom2: &Chromatogram,
+// ) -> Vec<HashMap<String, f64>> {
+//     // let run1_name = chrom1.metadata.get("basename").unwrap_or(&chrom1.native_id);
+//     // let run2_name = chrom2.metadata.get("basename").unwrap_or(&chrom2.native_id);
+
+//     optimal_path.iter()
+//         .filter(|&&(i, j)| i > 0 && j > 0)
+//         .map(|&(i, j)| {
+//             let rt1 = chrom1.retention_times[i - 1];
+//             let rt2 = chrom2.retention_times[j - 1];
+            
+//             let mut entry = HashMap::with_capacity(0);
+//             entry.insert("rt1".to_string(), rt1);
+//             entry.insert("rt2".to_string(), rt2);
+//             // entry.insert("alignment".to_string(), format!("({}, {})", rt1, rt2));
+//             // entry.insert("run1".to_string(), run1_name.clone());
+//             // entry.insert("run2".to_string(), run2_name.clone());
+//             entry
+//         })
+//         .collect()
+// }
+
 fn create_rt_mapping(
     optimal_path: &[(usize, usize)],
     chrom1: &Chromatogram,
     chrom2: &Chromatogram,
-) -> Vec<HashMap<String, f64>> {
-    // let run1_name = chrom1.metadata.get("basename").unwrap_or(&chrom1.native_id);
-    // let run2_name = chrom2.metadata.get("basename").unwrap_or(&chrom2.native_id);
-
+) -> Vec<AlignedRTPointPair> {
     optimal_path.iter()
         .filter(|&&(i, j)| i > 0 && j > 0)
-        .map(|&(i, j)| {
-            let rt1 = chrom1.retention_times[i - 1];
-            let rt2 = chrom2.retention_times[j - 1];
-            
-            let mut entry = HashMap::with_capacity(0);
-            entry.insert("rt1".to_string(), rt1);
-            entry.insert("rt2".to_string(), rt2);
-            // entry.insert("alignment".to_string(), format!("({}, {})", rt1, rt2));
-            // entry.insert("run1".to_string(), run1_name.clone());
-            // entry.insert("run2".to_string(), run2_name.clone());
-            entry
+        .map(|&(i, j)| AlignedRTPointPair {
+            rt1: chrom1.retention_times[i - 1] as f32,
+            rt2: chrom2.retention_times[j - 1] as f32,
         })
         .collect()
 }

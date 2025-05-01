@@ -1,7 +1,10 @@
 use duckdb::{params, Connection, Result};
+use duckdb::types::ToSql;
+use duckdb::types::Value;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
+use rayon::prelude::*;
 
 use crate::osw::PrecursorIdData;
 use crate::sqmass::{decompress_data, TransitionGroup};
@@ -199,42 +202,181 @@ impl ChromatogramReader for DuckDBParquetChromatogramReader {
         Ok(transition_group)
     }
 
-    /// Read chromatograms for the given precursors
+    // /// Read chromatograms for the given precursors
+    // fn read_chromatograms_for_precursors(
+    //     &self,
+    //     precursors: &[PrecursorIdData],
+    //     include_precursor: bool,
+    //     num_isotopes: usize,
+    // ) -> anyhow::Result<HashMap<i32, TransitionGroup>> {
+    //     // Build native ID to precursor mapping
+    //     let precursor_to_native_ids: HashMap<i32, Vec<String>> = precursors
+    //         .iter()
+    //         .map(|precursor| {
+    //             let native_ids =
+    //                 precursor.extract_native_ids_for_sqmass(include_precursor, num_isotopes);
+    //             (precursor.precursor_id, native_ids)
+    //         })
+    //         .collect();
+
+    //     // Collect all native IDs we need to load
+    //     let all_native_ids: Vec<String> = precursor_to_native_ids
+    //         .values()
+    //         .flatten()
+    //         .cloned()
+    //         .collect();
+
+    //     if all_native_ids.is_empty() {
+    //         return Ok(HashMap::new());
+    //     }
+
+    //     // Create placeholders for the query
+    //     let placeholders = all_native_ids
+    //         .iter()
+    //         .map(|id| format!("'{}'", id))
+    //         .collect::<Vec<_>>()
+    //         .join(",");
+
+    //     // Query the Parquet file directly using DuckDB
+    //     let query = format!(
+    //         "SELECT 
+    //             PRECURSOR_ID, 
+    //             NATIVE_ID, 
+    //             RT_DATA, 
+    //             INTENSITY_DATA, 
+    //             RT_COMPRESSION, 
+    //             INTENSITY_COMPRESSION 
+    //          FROM read_parquet('{}') 
+    //          WHERE NATIVE_ID IN ({})",
+    //         self.file, placeholders
+    //     );
+
+    //     let mut stmt = self.conn.prepare(&query)?;
+
+    //     let rows = stmt.query_map([], |row| {
+    //         Ok((
+    //             row.get::<_, i32>(0)?,     // precursor_id
+    //             row.get::<_, String>(1)?,  // native_id
+    //             row.get::<_, Vec<u8>>(2)?, // rt_data
+    //             row.get::<_, Vec<u8>>(3)?, // intensity_data
+    //             row.get::<_, i32>(4)?,     // rt_compression
+    //             row.get::<_, i32>(5)?,     // intensity_compression
+    //         ))
+    //     })?;
+
+    //     let mut precursor_groups = HashMap::new();
+
+    //     for row in rows {
+    //         let (
+    //             precursor_id,
+    //             native_id,
+    //             rt_data,
+    //             intensity_data,
+    //             rt_compression,
+    //             intensity_compression,
+    //         ) = row?;
+
+    //         // Find which precursor this chromatogram belongs to
+    //         if let Some(precursor_native_ids) = precursor_to_native_ids.get(&precursor_id) {
+    //             if precursor_native_ids.contains(&native_id) {
+    //                 let group_id = format!(
+    //                     "{}_{}",
+    //                     precursors
+    //                         .iter()
+    //                         .find(|p| p.precursor_id == precursor_id)
+    //                         .map(|p| p.modified_sequence.clone())
+    //                         .unwrap_or_default(),
+    //                     precursors
+    //                         .iter()
+    //                         .find(|p| p.precursor_id == precursor_id)
+    //                         .map(|p| p.precursor_charge.to_string())
+    //                         .unwrap_or_default()
+    //                 );
+
+    //                 let group =
+    //                     precursor_groups
+    //                         .entry(precursor_id)
+    //                         .or_insert_with(|| TransitionGroup {
+    //                             group_id: group_id.clone(),
+    //                             chromatograms: HashMap::new(),
+    //                             metadata: HashMap::new(),
+    //                         });
+
+    //                 let chrom = group
+    //                     .chromatograms
+    //                     .entry(native_id.clone())
+    //                     .or_insert_with(|| Chromatogram {
+    //                         id: precursor_id, // Using precursor_id as chromatogram ID
+    //                         native_id: native_id.clone(),
+    //                         retention_times: Vec::new(),
+    //                         intensities: Vec::new(),
+    //                         metadata: HashMap::new(),
+    //                     });
+
+    //                 // Decode retention times
+    //                 chrom.retention_times =
+    //                     decompress_data(&rt_data, rt_compression).map_err(|e| {
+    //                         DuckDBParquetError::DecompressionError(format!(
+    //                             "RT decompression failed: {}",
+    //                             e
+    //                         ))
+    //                     })?;
+
+    //                 // Decode intensities
+    //                 chrom.intensities = decompress_data(&intensity_data, intensity_compression)
+    //                     .map_err(|e| {
+    //                         DuckDBParquetError::DecompressionError(format!(
+    //                             "Intensity decompression failed: {}",
+    //                             e
+    //                         ))
+    //                     })?;
+    //             }
+    //         }
+    //     }
+
+    //     // Add metadata to each group
+    //     for group in precursor_groups.values_mut() {
+    //         group
+    //             .metadata
+    //             .insert("file".to_string(), self.file.to_string());
+    //         group
+    //             .metadata
+    //             .insert("basename".to_string(), extract_basename(&self.file));
+    //     }
+
+    //     Ok(precursor_groups)
+    // }
+
+    /// Optimized version of read_chromatograms_for_precursors
     fn read_chromatograms_for_precursors(
         &self,
         precursors: &[PrecursorIdData],
         include_precursor: bool,
         num_isotopes: usize,
     ) -> anyhow::Result<HashMap<i32, TransitionGroup>> {
-        // Build native ID to precursor mapping
-        let precursor_to_native_ids: HashMap<i32, Vec<String>> = precursors
+        // 1. Build optimized lookup structures
+        let precursor_info: HashMap<i32, (String, String)> = precursors
             .iter()
-            .map(|precursor| {
-                let native_ids =
-                    precursor.extract_native_ids_for_sqmass(include_precursor, num_isotopes);
-                (precursor.precursor_id, native_ids)
+            .map(|p| (
+                p.precursor_id, 
+                (p.modified_sequence.clone(), p.precursor_charge.to_string())
+            ))
+            .collect();
+
+        let native_id_to_precursor: HashMap<String, i32> = precursors
+            .iter()
+            .flat_map(|p| {
+                p.extract_native_ids_for_sqmass(include_precursor, num_isotopes)
+                    .into_iter()
+                    .map(move |id| (id, p.precursor_id))
             })
             .collect();
 
-        // Collect all native IDs we need to load
-        let all_native_ids: Vec<String> = precursor_to_native_ids
-            .values()
-            .flatten()
-            .cloned()
-            .collect();
-
-        if all_native_ids.is_empty() {
+        if native_id_to_precursor.is_empty() {
             return Ok(HashMap::new());
         }
 
-        // Create placeholders for the query
-        let placeholders = all_native_ids
-            .iter()
-            .map(|id| format!("'{}'", id))
-            .collect::<Vec<_>>()
-            .join(",");
-
-        // Query the Parquet file directly using DuckDB
+        // 2. Optimized DuckDB query with string formatting
         let query = format!(
             "SELECT 
                 PRECURSOR_ID, 
@@ -243,103 +385,94 @@ impl ChromatogramReader for DuckDBParquetChromatogramReader {
                 INTENSITY_DATA, 
                 RT_COMPRESSION, 
                 INTENSITY_COMPRESSION 
-             FROM read_parquet('{}') 
-             WHERE NATIVE_ID IN ({})",
-            self.file, placeholders
+            FROM read_parquet('{}') 
+            WHERE NATIVE_ID IN ({})",
+            self.file,
+            native_id_to_precursor.keys()
+                .map(|id| format!("'{}'", id.replace("'", "''")))
+                .collect::<Vec<_>>()
+                .join(",")
         );
 
         let mut stmt = self.conn.prepare(&query)?;
-
-        let rows = stmt.query_map([], |row| {
+        let rows = stmt.query_map([], |row| {  // <- Empty params here since we formatted everything
             Ok((
-                row.get::<_, i32>(0)?,     // precursor_id
-                row.get::<_, String>(1)?,  // native_id
-                row.get::<_, Vec<u8>>(2)?, // rt_data
-                row.get::<_, Vec<u8>>(3)?, // intensity_data
-                row.get::<_, i32>(4)?,     // rt_compression
-                row.get::<_, i32>(5)?,     // intensity_compression
+                row.get::<_, i32>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Vec<u8>>(2)?,
+                row.get::<_, Vec<u8>>(3)?,
+                row.get::<_, i32>(4)?,
+                row.get::<_, i32>(5)?,
             ))
         })?;
 
-        let mut precursor_groups = HashMap::new();
-
-        for row in rows {
-            let (
-                precursor_id,
-                native_id,
-                rt_data,
-                intensity_data,
-                rt_compression,
-                intensity_compression,
-            ) = row?;
-
-            // Find which precursor this chromatogram belongs to
-            if let Some(precursor_native_ids) = precursor_to_native_ids.get(&precursor_id) {
-                if precursor_native_ids.contains(&native_id) {
-                    let group_id = format!(
-                        "{}_{}",
-                        precursors
-                            .iter()
-                            .find(|p| p.precursor_id == precursor_id)
-                            .map(|p| p.modified_sequence.clone())
-                            .unwrap_or_default(),
-                        precursors
-                            .iter()
-                            .find(|p| p.precursor_id == precursor_id)
-                            .map(|p| p.precursor_charge.to_string())
-                            .unwrap_or_default()
-                    );
-
-                    let group =
-                        precursor_groups
-                            .entry(precursor_id)
-                            .or_insert_with(|| TransitionGroup {
-                                group_id: group_id.clone(),
-                                chromatograms: HashMap::new(),
+        // 3. Parallel processing of chromatograms
+        let rows: Vec<_> = rows.collect::<Result<Vec<_>, _>>()?;
+        let mut precursor_groups = rows
+            .par_iter()
+            .filter_map(|row| {
+                let (precursor_id, native_id, rt_data, intensity_data, rt_comp, int_comp) = row;
+                
+                native_id_to_precursor.get(native_id).map(|&pid| {
+                    let (seq, charge) = &precursor_info[&pid];
+                    let group_id = format!("{}_{}", seq, charge);
+                    
+                    match (
+                        decompress_data(rt_data, *rt_comp),
+                        decompress_data(intensity_data, *int_comp)
+                    ) {
+                        (Ok(rt), Ok(intensities)) => Some((
+                            pid,
+                            (native_id.clone(), Chromatogram {
+                                id: pid,
+                                native_id: native_id.clone(),
+                                retention_times: rt,
+                                intensities,
                                 metadata: HashMap::new(),
-                            });
-
-                    let chrom = group
-                        .chromatograms
-                        .entry(native_id.clone())
-                        .or_insert_with(|| Chromatogram {
-                            id: precursor_id, // Using precursor_id as chromatogram ID
-                            native_id: native_id.clone(),
-                            retention_times: Vec::new(),
-                            intensities: Vec::new(),
+                            })
+                        )),
+                        _ => None,
+                    }
+                }).flatten()
+            })
+            .fold(
+                || HashMap::new(),
+                |mut acc, (pid, (native_id, chrom))| {
+                    acc.entry(pid)
+                        .and_modify(|group: &mut TransitionGroup| {
+                            group.chromatograms.insert(native_id.clone(), chrom.clone());
+                        })
+                        .or_insert_with(|| TransitionGroup {
+                            group_id: format!("{}_{}", 
+                                precursor_info[&pid].0, 
+                                precursor_info[&pid].1),
+                            chromatograms: HashMap::from([(native_id, chrom)]),
                             metadata: HashMap::new(),
                         });
-
-                    // Decode retention times
-                    chrom.retention_times =
-                        decompress_data(&rt_data, rt_compression).map_err(|e| {
-                            DuckDBParquetError::DecompressionError(format!(
-                                "RT decompression failed: {}",
-                                e
-                            ))
-                        })?;
-
-                    // Decode intensities
-                    chrom.intensities = decompress_data(&intensity_data, intensity_compression)
-                        .map_err(|e| {
-                            DuckDBParquetError::DecompressionError(format!(
-                                "Intensity decompression failed: {}",
-                                e
-                            ))
-                        })?;
+                    acc
                 }
-            }
-        }
+            )
+            .reduce(
+                || HashMap::new(),
+                |mut a, b| {
+                    for (pid, group) in b {
+                        a.entry(pid)
+                            .and_modify(|existing| {
+                                existing.chromatograms.extend(group.clone().chromatograms);
+                            })
+                            .or_insert(group);
+                    }
+                    a
+                }
+            );
 
-        // Add metadata to each group
-        for group in precursor_groups.values_mut() {
-            group
-                .metadata
-                .insert("file".to_string(), self.file.to_string());
-            group
-                .metadata
-                .insert("basename".to_string(), extract_basename(&self.file));
-        }
+        // 4. Optimized metadata handling
+        let basename = extract_basename(&self.file);
+        let file_str = self.file.to_string();
+        precursor_groups.values_mut().for_each(|group| {
+            group.metadata.insert("file".to_string(), file_str.clone());
+            group.metadata.insert("basename".to_string(), basename.clone());
+        });
 
         Ok(precursor_groups)
     }

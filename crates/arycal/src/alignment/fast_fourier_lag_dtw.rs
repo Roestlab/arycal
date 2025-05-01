@@ -7,42 +7,71 @@ use rayon::prelude::*;
 use dtw_rs::{Algorithm, DynamicTimeWarping};
 
 use crate::alignment::fast_fourier_lag::{find_lag_with_max_correlation, shift_chromatogram};
-use arycal_common::chromatogram::{Chromatogram, AlignedChromatogram};
+use arycal_common::chromatogram::{AlignedChromatogram, AlignedRTPointPair, Chromatogram};
 use arycal_common::config::AlignmentConfig;
 use arycal_cloudpath::util::extract_basename;
 
-/// Creates a mapping between the original retention times (RT) of two chromatograms based on the lag and DTW alignment.
-///
-/// The mapping is stored as a list of dictionaries, where each dictionary contains the following keys:
+// /// Creates a mapping between the original retention times (RT) of two chromatograms based on the lag and DTW alignment.
+// ///
+// /// The mapping is stored as a list of dictionaries, where each dictionary contains the following keys:
+// ///
+// /// # Parameters
+// /// - `lag`: The lag between the two chromatograms.
+// /// - `chrom1`: The reference chromatogram.
+// /// - `chrom2`: The chromatogram to align.
+// ///
+// /// # Returns
+// /// A list of dictionaries containing the following
+// pub fn create_fft_dtw_rt_mapping(
+//     lag: isize,
+//     chrom1: &Chromatogram,
+//     chrom2: &Chromatogram,
+// ) -> Vec<HashMap<String, f64>> {
+//     // let run1_name = chrom1.metadata.get("basename").unwrap_or(&chrom1.native_id).to_string();
+//     // let run2_name = chrom2.metadata.get("basename").unwrap_or(&chrom2.native_id).to_string();
+
+//     chrom1.retention_times
+//         .iter()
+//         .enumerate()
+//         .filter_map(|(i, &rt1)| {
+//             let j = (i as isize + lag) as usize;
+//             chrom2.retention_times.get(j).map(|&rt2| {
+//                 let mut entry = HashMap::with_capacity(0);
+//                 entry.insert("rt1".to_string(), rt1);
+//                 entry.insert("rt2".to_string(), rt2);
+//                 // entry.insert("alignment".to_string(), format!("({}, {})", rt1, rt2));
+//                 // entry.insert("run1".to_string(), run1_name.clone());
+//                 // entry.insert("run2".to_string(), run2_name.clone());
+//                 entry
+//             })
+//         })
+//         .collect()
+// }
+
+/// Creates a mapping between the original retention times (RT) of two chromatograms based on the lag.
 ///
 /// # Parameters
-/// - `lag`: The lag between the two chromatograms.
-/// - `chrom1`: The reference chromatogram.
-/// - `chrom2`: The chromatogram to align.
+/// - `lag`: The lag between the two chromatograms (in points)
+/// - `chrom1`: The reference chromatogram
+/// - `chrom2`: The chromatogram to align
 ///
 /// # Returns
-/// A list of dictionaries containing the following
+/// A vector of aligned RT point pairs
 pub fn create_fft_dtw_rt_mapping(
     lag: isize,
     chrom1: &Chromatogram,
     chrom2: &Chromatogram,
-) -> Vec<HashMap<String, f64>> {
-    // let run1_name = chrom1.metadata.get("basename").unwrap_or(&chrom1.native_id).to_string();
-    // let run2_name = chrom2.metadata.get("basename").unwrap_or(&chrom2.native_id).to_string();
-
+) -> Vec<AlignedRTPointPair> {
     chrom1.retention_times
         .iter()
         .enumerate()
         .filter_map(|(i, &rt1)| {
             let j = (i as isize + lag) as usize;
             chrom2.retention_times.get(j).map(|&rt2| {
-                let mut entry = HashMap::with_capacity(0);
-                entry.insert("rt1".to_string(), rt1);
-                entry.insert("rt2".to_string(), rt2);
-                // entry.insert("alignment".to_string(), format!("({}, {})", rt1, rt2));
-                // entry.insert("run1".to_string(), run1_name.clone());
-                // entry.insert("run2".to_string(), run2_name.clone());
-                entry
+                AlignedRTPointPair {
+                    rt1: rt1 as f32,
+                    rt2: rt2 as f32,
+                }
             })
         })
         .collect()
