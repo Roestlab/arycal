@@ -82,22 +82,22 @@ impl ChromatogramReader for DuckDBParquetChromatogramReader {
         //     DuckDBParquetError::DatabaseError(format!("Failed to load parquet extension: {}", e))
         // })?;
 
-        // Auto-load bundled parquet extension
-        conn.execute_batch(
-            "SET autoinstall_known_extensions=true; 
-            SET autoload_known_extensions=true;"
-        )?;
-
-        // Verify extension loaded
-        let loaded: bool = conn.query_row(
-            "SELECT loaded FROM duckdb_extensions() WHERE extension_name = 'parquet'",
-            [],
-            |row| row.get(0),
-        )?;
+        // let parquet_supported: bool = conn
+        //     .query_row(
+        //         "SELECT count(*) > 0 FROM duckdb_extensions() WHERE extension_name = 'parquet'", 
+        //         [], 
+        //         |row| row.get(0)
+        //     )
+        //     .unwrap_or(false);
         
-        if !loaded {
-            return Err(anyhow::anyhow!("Failed to load parquet extension"));
-        }
+        // if !parquet_supported {
+        //     // Try loading explicitly if not detected
+        //     if let Err(e) = conn.execute("LOAD 'parquet'", []) {
+        //         return Err(anyhow::anyhow!(
+        //             "Parquet support not available and failed to load: {}", e
+        //         ));
+        //     }
+        // }
 
         Ok(DuckDBParquetChromatogramReader {
             file: db_path.to_string(),

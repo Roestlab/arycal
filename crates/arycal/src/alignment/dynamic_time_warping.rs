@@ -116,7 +116,7 @@ fn create_rt_mapping(
 /// # Returns
 /// - A vector of aligned chromatograms with their alignment paths
 pub fn star_align_tics(
-    smoothed_tics: Vec<Chromatogram>,
+    smoothed_tics: &Vec<Chromatogram>,
     params: &AlignmentConfig,
 ) -> Result<Vec<AlignedChromatogram>, AnyHowError> {
     // Early return if insufficient chromatograms
@@ -181,7 +181,7 @@ pub fn star_align_tics(
 /// 
 /// # Returns
 /// - A vector of aligned chromatograms with their alignment paths
-pub fn progressive_align_tics(smoothed_tics: Vec<Chromatogram>) -> Result<Vec<AlignedChromatogram>, AnyHowError> {
+pub fn progressive_align_tics(smoothed_tics: &Vec<Chromatogram>) -> Result<Vec<AlignedChromatogram>, AnyHowError> {
     // Ensure we have at least two tics to align
     if smoothed_tics.len() < 2 {
         return Err(AnyHowError::msg("At least two chromatograms are required for alignment"));
@@ -265,7 +265,7 @@ pub fn progressive_align_tics(smoothed_tics: Vec<Chromatogram>) -> Result<Vec<Al
 /// 
 /// # Returns
 /// - A vector of aligned chromatograms with their alignment paths
-pub fn mst_align_tics(smoothed_tics: Vec<Chromatogram>) -> Result<Vec<AlignedChromatogram>, AnyHowError> {
+pub fn mst_align_tics(smoothed_tics: &Vec<Chromatogram>) -> Result<Vec<AlignedChromatogram>, AnyHowError> {
     // Ensure we have at least two chromatograms to align
     if smoothed_tics.len() < 2 {
         return Err(AnyHowError::msg("At least two chromatograms are required for alignment"));

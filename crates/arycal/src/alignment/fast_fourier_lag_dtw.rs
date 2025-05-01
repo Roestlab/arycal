@@ -63,7 +63,7 @@ pub fn create_fft_dtw_rt_mapping(
 /// # Returns
 /// A vector of aligned chromatograms.
 pub fn star_align_tics_fft_with_local_refinement(
-    smoothed_tics: Vec<Chromatogram>,
+    smoothed_tics: &Vec<Chromatogram>,
     params: &AlignmentConfig,
 ) -> Result<Vec<AlignedChromatogram>, AnyHowError> {
     if smoothed_tics.len() < 2 {

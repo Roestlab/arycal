@@ -99,8 +99,8 @@ pub fn compute_alignment_scores(
 
 
 pub fn compute_peak_mapping_scores(
-    aligned_chromatograms: Vec<AlignedChromatogram>,
-    peak_mappings: HashMap<String, Vec<PeakMapping>>,
+    aligned_chromatograms: &Vec<AlignedChromatogram>,
+    peak_mappings: &HashMap<String, Vec<PeakMapping>>,
 ) -> HashMap<String, Vec<PeakMapping>> {
     // Create Arc wrappers for shared access
     let chroms_arc = Arc::new(aligned_chromatograms);
@@ -203,8 +203,8 @@ pub fn compute_peak_mapping_scores(
 
 pub fn compute_peak_mapping_transitions_scores(
     aligned_identifying_trgrps: Vec<TransitionGroup>,
-    aligned_chromatograms: Vec<AlignedChromatogram>,
-    peak_mappings: HashMap<String, Vec<PeakMapping>>,
+    aligned_chromatograms: &Vec<AlignedChromatogram>,
+    peak_mappings: &HashMap<String, Vec<PeakMapping>>,
 ) -> HashMap<String, Vec<AlignedTransitionScores>> {
     // Wrap data in Arc for shared access
     let chroms_arc = Arc::new(aligned_chromatograms);
@@ -447,8 +447,8 @@ fn get_array_peak_intensities(
 
 /// Helper function to get all intensities for an alignment ID
 fn get_all_intensities_for_alignment(
-    chromatograms: &Arc<Vec<AlignedChromatogram>>,
-    peak_mappings: &Arc<HashMap<String, Vec<PeakMapping>>>,
+    chromatograms: &Arc<&Vec<AlignedChromatogram>>,
+    peak_mappings: &Arc<&HashMap<String, Vec<PeakMapping>>>,
     alignment_id: i64,
 ) -> Option<Vec<Array1<f64>>> {
     let relevant_mappings: Vec<_> = peak_mappings.values()

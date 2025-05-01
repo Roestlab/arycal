@@ -108,7 +108,7 @@ pub fn create_fft_rt_mapping(
 /// # Returns
 /// - A vector of aligned chromatograms with their alignment offsets
 pub fn star_align_tics_fft(
-    smoothed_tics: Vec<Chromatogram>,
+    smoothed_tics: &Vec<Chromatogram>,
     params: &AlignmentConfig,
 ) -> Result<Vec<AlignedChromatogram>, AnyHowError> {
     if smoothed_tics.len() < 2 {
@@ -176,7 +176,7 @@ pub fn star_align_tics_fft(
 /// # Returns
 /// - A vector of aligned chromatograms with their alignment offsets
 pub fn progressive_align_tics_fft(
-    smoothed_tics: Vec<Chromatogram>,
+    smoothed_tics: &Vec<Chromatogram>,
 ) -> Result<Vec<AlignedChromatogram>, AnyHowError> {
     // Ensure we have at least two chromatograms to align
     if smoothed_tics.len() < 2 {
@@ -245,7 +245,7 @@ pub fn progressive_align_tics_fft(
 /// # Returns
 /// - A vector of aligned chromatograms with their alignment paths
 pub fn mst_align_tics_fft(
-    smoothed_tics: Vec<Chromatogram>,
+    smoothed_tics: &Vec<Chromatogram>,
 ) -> Result<Vec<AlignedChromatogram>, AnyHowError> {
     // Ensure we have at least two chromatograms to align
     if smoothed_tics.len() < 2 {

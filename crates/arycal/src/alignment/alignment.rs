@@ -666,8 +666,8 @@ fn find_closest_feature(
 /// - `alignment_config`: The alignment configuration
 pub fn apply_post_alignment_to_trgrp(
     transition_groups: Vec<TransitionGroup>,
-    aligned_chromatograms: Vec<AlignedChromatogram>,
-    common_rt_space: Vec<f64>,
+    aligned_chromatograms: &Vec<AlignedChromatogram>,
+    common_rt_space: &Vec<f64>,
     alignment_config: &AlignmentConfig
 ) -> Vec<TransitionGroup> {
 

@@ -414,22 +414,22 @@ impl Runner {
         let aligned_chromatograms = match self.parameters.alignment.method.to_lowercase().as_str() {
             "dtw" => {
                 match self.parameters.alignment.reference_type.as_str() {
-                    "star" => star_align_tics(smoothed_tics.clone(), &self.parameters.alignment)?,
-                    "mst" => mst_align_tics(smoothed_tics.clone())?,
-                    "progressive" => progressive_align_tics(smoothed_tics.clone())?,
-                    _ => star_align_tics(smoothed_tics.clone(), &self.parameters.alignment)?,
+                    "star" => star_align_tics(&smoothed_tics, &self.parameters.alignment)?,
+                    "mst" => mst_align_tics(&smoothed_tics)?,
+                    "progressive" => progressive_align_tics(&smoothed_tics)?,
+                    _ => star_align_tics(&smoothed_tics, &self.parameters.alignment)?,
                 }
             },
             "fft" => {
                 match self.parameters.alignment.reference_type.as_str() {
-                    "star" => star_align_tics_fft(smoothed_tics.clone(), &self.parameters.alignment)?,
-                    "mst" => mst_align_tics_fft(smoothed_tics.clone())?,
-                    "progressive" => progressive_align_tics_fft(smoothed_tics.clone())?,
-                    _ => star_align_tics_fft(smoothed_tics.clone(), &self.parameters.alignment)?,
+                    "star" => star_align_tics_fft(&smoothed_tics, &self.parameters.alignment)?,
+                    "mst" => mst_align_tics_fft(&smoothed_tics)?,
+                    "progressive" => progressive_align_tics_fft(&smoothed_tics.clone())?,
+                    _ => star_align_tics_fft(&smoothed_tics, &self.parameters.alignment)?,
                 }
             },
-            "fftdtw" => star_align_tics_fft_with_local_refinement(smoothed_tics.clone(), &self.parameters.alignment)?,
-            _ => star_align_tics(smoothed_tics.clone(), &self.parameters.alignment)?,
+            "fftdtw" => star_align_tics_fft_with_local_refinement(&smoothed_tics, &self.parameters.alignment)?,
+            _ => star_align_tics(&smoothed_tics, &self.parameters.alignment)?,
         };
         log::debug!("Alignment took: {:?}", start_time.elapsed());
 
@@ -529,20 +529,20 @@ impl Runner {
             log::debug!("Computing peak mapping scores");
             let start_time = Instant::now();
             let scored_peak_mappings =
-                compute_peak_mapping_scores(aligned_chromatograms.clone(), mapped_prec_peaks.clone());
+                compute_peak_mapping_scores(&aligned_chromatograms, &mapped_prec_peaks);
 
             // Create decoy aligned peaks based on the method specified in the parameters
             let mut decoy_peak_mappings: HashMap<String, Vec<PeakMapping>> = HashMap::new();
             if self.parameters.alignment.decoy_peak_mapping_method == "shuffle" {
                 log::debug!("Creating decoy peaks by shuffling query peaks");
-                decoy_peak_mappings = create_decoy_peaks_by_shuffling(&mapped_prec_peaks.clone());
+                decoy_peak_mappings = create_decoy_peaks_by_shuffling(&mapped_prec_peaks);
             } else if self.parameters.alignment.decoy_peak_mapping_method == "random_regions" {
                 log::debug!("Creating decoy peaks by picking random regions in the query XIC");
-                decoy_peak_mappings = create_decoy_peaks_by_random_regions(&aligned_chromatograms.clone(), &mapped_prec_peaks.clone(), self.parameters.alignment.decoy_window_size.unwrap_or_default());
+                decoy_peak_mappings = create_decoy_peaks_by_random_regions(&aligned_chromatograms, &mapped_prec_peaks, self.parameters.alignment.decoy_window_size.unwrap_or_default());
             }
             log::debug!("Computing peak mapping scores for decoy peaks");
             let scored_decoy_peak_mappings =
-                compute_peak_mapping_scores(aligned_chromatograms.clone(), decoy_peak_mappings.clone());
+                compute_peak_mapping_scores(&aligned_chromatograms, &decoy_peak_mappings);
 
             // Combine true and decoy peaks for analysis into HashMap<String, Vec<PeakMapping>>
             let all_peak_mappings: HashMap<String, Vec<PeakMapping>> = {
@@ -570,7 +570,7 @@ impl Runner {
         let identifying_peak_mapping_scores: HashMap<String, Vec<AlignedTransitionScores>> = if self.parameters.filters.include_identifying_transitions.unwrap_or_default() && self.parameters.alignment.compute_scores.unwrap_or_default() {
             let start_time = Instant::now();
             log::debug!("Processing identifying transitions - aligning and scoring");
-            let id_peak_scores = self.process_identifying_transitions(group_id.clone(), precursor, aligned_chromatograms.clone(), scored_peak_mappings.clone(), smoothed_tics[0].retention_times.clone());
+            let id_peak_scores = self.process_identifying_transitions(group_id.clone(), precursor, &aligned_chromatograms, &scored_peak_mappings, &smoothed_tics[0].retention_times);
             log::debug!("Identifying peak mapping scoring took: {:?}", start_time.elapsed());
             id_peak_scores
         } else {
@@ -593,9 +593,9 @@ impl Runner {
         &self,
         group_id: String,
         precursor: &PrecursorIdData,
-        aligned_chromatograms: Vec<AlignedChromatogram>,
-        peak_mappings: HashMap<String, Vec<PeakMapping>>,
-        common_rt_space: Vec<f64>
+        aligned_chromatograms: &Vec<AlignedChromatogram>,
+        peak_mappings: &HashMap<String, Vec<PeakMapping>>,
+        common_rt_space: &Vec<f64>
     ) -> HashMap<String, Vec<AlignedTransitionScores>> {
         // Extract identifying transition ids
         let identifying_transitions_ids: Vec<String> = precursor.clone().extract_identifying_native_ids_for_sqmass();
@@ -618,114 +618,12 @@ impl Runner {
         }
         
         // Score Identifying transitions
-        let aligned_identifying_trgrps = apply_post_alignment_to_trgrp(identifying_chromatograms, aligned_chromatograms.clone(), common_rt_space, &self.parameters.alignment);
+        let aligned_identifying_trgrps = apply_post_alignment_to_trgrp(identifying_chromatograms, &aligned_chromatograms, common_rt_space, &self.parameters.alignment);
 
-        let scored_aligned_identifying_transitions = compute_peak_mapping_transitions_scores(aligned_identifying_trgrps, aligned_chromatograms, peak_mappings);
+        let scored_aligned_identifying_transitions = compute_peak_mapping_transitions_scores(aligned_identifying_trgrps, &aligned_chromatograms, &peak_mappings);
 
         scored_aligned_identifying_transitions
     }
-
-    fn align_precursor(
-        &self,
-        precursor: &PrecursorIdData,
-    ) -> Result<Vec<AlignedChromatogram>, anyhow::Error> 
-    {
-        let native_ids: Vec<String> = precursor.clone().extract_native_ids_for_sqmass(
-            self.parameters.xic.include_precursor,
-            self.parameters.xic.num_isotopes,
-        );
-        let native_ids_str: Vec<&str> = native_ids.iter().map(|s| s.as_str()).collect();
-
-        log::debug!("modified_sequence: {:?}, precursor_charge: {:?}, detecting transitions: {:?}, identifying transitions: {:?}", precursor.modified_sequence, precursor.precursor_charge, precursor.n_transitions(), precursor.n_identifying_transitions());
-
-        log::trace!("native_ids: {:?}", native_ids);
-
-        let group_id =
-            precursor.modified_sequence.clone() + "_" + &precursor.precursor_charge.to_string();
-    
-        /* ------------------------------------------------------------------ */
-        /* Step 1. Extract and transform XICs                                 */
-        /* ------------------------------------------------------------------ */
-
-        // Extract chromatograms from the XIC files
-        let chromatograms:Vec<TransitionGroup>  = self
-            .xic_access
-            .iter()
-            .map(|access| {
-                access.read_chromatograms("NATIVE_ID", native_ids_str.clone(), group_id.clone())
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
-
-        // Check length of the first chromatogram, should be at least more than 10 points
-        if chromatograms[0]
-            .chromatograms
-            .iter()
-            .map(|chromatogram| chromatogram.1.intensities.len())
-            .sum::<usize>()
-            < 10
-        {
-            return Ok(Vec::new());
-        }
-
-        // Check that there are no NaN values in the chromatograms
-        for chrom in chromatograms.iter() {
-            for (_, chrom_data) in chrom.chromatograms.iter() {
-                if chrom_data.intensities.iter().any(|&x| x.is_nan()) || chrom_data.retention_times.iter().any(|&x| x.is_nan()) {
-                    return Ok(Vec::new());
-                }
-            }
-        }
-
-        // Compute TICs
-        let tics: Vec<_> = chromatograms
-            .iter()
-            .map(|chromatogram| chromatogram.calculate_tic())
-            .collect();
-
-        // Create common retention time space
-        let common_rt_space = create_common_rt_space(tics);
-        // let common_rt_space = tics.clone();
-
-        // Smooth and normalize TICs
-        let smoothed_tics: Vec<_> = common_rt_space
-            .iter()
-            .map(|tic| {
-                tic.smooth_sgolay(
-                    self.parameters.alignment.smoothing.sgolay_window,
-                    self.parameters.alignment.smoothing.sgolay_order,
-                )?
-                .normalize()
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        /* ------------------------------------------------------------------ */
-        /* Step 2. Pair-wise Alignment of TICs                                */
-        /* ------------------------------------------------------------------ */
-
-        log::debug!("Aligning TICs using {:?} using reference type: {:?}", self.parameters.alignment.method.as_str(), self.parameters.alignment.reference_type);
-        let aligned_chromatograms = match self.parameters.alignment.method.as_str() {
-            "dtw" => {
-                match self.parameters.alignment.reference_type.as_str() {
-                    "star" => star_align_tics(smoothed_tics.clone(), &self.parameters.alignment)?,
-                    "mst" => mst_align_tics(smoothed_tics.clone())?,
-                    "progressive" => progressive_align_tics(smoothed_tics.clone())?,
-                    _ => star_align_tics(smoothed_tics.clone(), &self.parameters.alignment)?,
-                }
-            },
-            "fft" => {
-                match self.parameters.alignment.reference_type.as_str() {
-                    "star" => star_align_tics_fft(smoothed_tics.clone(), &self.parameters.alignment)?,
-                    "mst" => mst_align_tics_fft(smoothed_tics.clone())?,
-                    "progressive" => progressive_align_tics_fft(smoothed_tics.clone())?,
-                    _ => star_align_tics_fft(smoothed_tics.clone(), &self.parameters.alignment)?,
-                }
-            },
-            "fft_dtw" => star_align_tics_fft_with_local_refinement(smoothed_tics.clone(), &self.parameters.alignment)?,
-            _ => star_align_tics(smoothed_tics.clone(), &self.parameters.alignment)?,
-        };
-        Ok(aligned_chromatograms)
-    }
-
 
     pub fn prepare_xics_batch(
         &self,
@@ -830,94 +728,6 @@ impl Runner {
         xic_batch
     }
 
-    // // Extract XICs for a batch of precursors
-    // pub fn prepare_xics_batch(
-    //     &self,
-    //     precursors: &[PrecursorIdData],
-    // ) -> anyhow::Result<HashMap<i32, PrecursorXics>> {
-    //     precursors
-    //         .par_iter()
-    //         .filter_map(|precursor| {
-    //             match self.prepare_xics(precursor) {
-    //                 Ok(xics) if xics != PrecursorXics::default() => {
-    //                     Some(Ok((precursor.precursor_id, xics)))
-    //                 }
-    //                 Ok(_) => {
-    //                     log::trace!("Skipping precursor {} due to empty/default XICs", precursor.precursor_id);
-    //                     None
-    //                 }
-    //                 Err(e) => {
-    //                     log::warn!("Error processing precursor {}: {}", precursor.precursor_id, e);
-    //                     None
-    //                 }
-    //             }
-    //         })
-    //         .collect()
-    // }
-
-    // Extract and process XICs for a single precursor
-    fn prepare_xics(
-        &self,
-        precursor: &PrecursorIdData,
-    ) -> anyhow::Result<PrecursorXics> {
-        let native_ids = precursor.clone().extract_native_ids_for_sqmass(
-            self.parameters.xic.include_precursor,
-            self.parameters.xic.num_isotopes,
-        );
-        let native_ids_str: Vec<&str> = native_ids.iter().map(|s| s.as_str()).collect();
-        let group_id = precursor.modified_sequence.clone() + "_" + &precursor.precursor_charge.to_string();
-
-        // Extract chromatograms
-        let start_time = Instant::now();
-        let chromatograms: Vec<TransitionGroup> = self
-            .xic_access
-            .par_iter()
-            .map(|access| {
-                access.read_chromatograms("NATIVE_ID", native_ids_str.clone(), group_id.clone())
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
-        log::trace!("XIC extraction took: {:?}", start_time.elapsed());
-
-        // Validate chromatograms
-        if chromatograms[0].chromatograms.iter().map(|c| c.1.intensities.len()).sum::<usize>() < 10 {
-            log::trace!("The first chromatogram has less than 10 points, skipping precursor with: {:?}", precursor.precursor_id);
-            return Ok(PrecursorXics::default());
-        }
-
-        for chrom in &chromatograms {
-            for (_, data) in &chrom.chromatograms {
-                if data.intensities.iter().any(|&x| x.is_nan()) || 
-                   data.retention_times.iter().any(|&x| x.is_nan()) {
-                    log::trace!("NaN values detected in chromatograms, skipping precursor with: {:?}", precursor.precursor_id);
-                    return Ok(PrecursorXics::default());
-                }
-            }
-        }
-
-        // Process chromatograms
-        let start_time = Instant::now();
-        let tics: Vec<_> = chromatograms.par_iter().map(|c| c.calculate_tic()).collect();
-        let common_rt_space = create_common_rt_space(tics);
-        let smoothed_tics = common_rt_space
-            .par_iter()
-            .map(|tic| {
-                tic.smooth_sgolay(
-                    self.parameters.alignment.smoothing.sgolay_window,
-                    self.parameters.alignment.smoothing.sgolay_order,
-                )?
-                .normalize()
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        log::trace!("TIC processing took: {:?}", start_time.elapsed());
-
-        Ok(PrecursorXics {
-            precursor_id: precursor.precursor_id,
-            smoothed_tics,
-            common_rt_space: common_rt_space[0].retention_times.clone(),
-            group_id,
-            native_ids,
-        })
-    }
 
     // Align TICs for a batch of precursors
     pub fn align_tics_batch(
@@ -946,19 +756,19 @@ impl Runner {
 
         let aligned_chromatograms = match self.parameters.alignment.method.to_lowercase().as_str() {
             "dtw" => match self.parameters.alignment.reference_type.as_str() {
-                "star" => star_align_tics(xics.smoothed_tics.clone(), &self.parameters.alignment)?,
-                "mst" => mst_align_tics(xics.smoothed_tics.clone())?,
-                "progressive" => progressive_align_tics(xics.smoothed_tics.clone())?,
-                _ => star_align_tics(xics.smoothed_tics.clone(), &self.parameters.alignment)?,
+                "star" => star_align_tics(&xics.smoothed_tics, &self.parameters.alignment)?,
+                "mst" => mst_align_tics(&xics.smoothed_tics)?,
+                "progressive" => progressive_align_tics(&xics.smoothed_tics)?,
+                _ => star_align_tics(&xics.smoothed_tics, &self.parameters.alignment)?,
             },
             "fft" => match self.parameters.alignment.reference_type.as_str() {
-                "star" => star_align_tics_fft(xics.smoothed_tics.clone(), &self.parameters.alignment)?,
-                "mst" => mst_align_tics_fft(xics.smoothed_tics.clone())?,
-                "progressive" => progressive_align_tics_fft(xics.smoothed_tics.clone())?,
-                _ => star_align_tics_fft(xics.smoothed_tics.clone(), &self.parameters.alignment)?,
+                "star" => star_align_tics_fft(&xics.smoothed_tics, &self.parameters.alignment)?,
+                "mst" => mst_align_tics_fft(&xics.smoothed_tics)?,
+                "progressive" => progressive_align_tics_fft(&xics.smoothed_tics)?,
+                _ => star_align_tics_fft(&xics.smoothed_tics, &self.parameters.alignment)?,
             },
-            "fftdtw" => star_align_tics_fft_with_local_refinement(xics.smoothed_tics.clone(), &self.parameters.alignment)?,
-            _ => star_align_tics(xics.smoothed_tics.clone(), &self.parameters.alignment)?,
+            "fftdtw" => star_align_tics_fft_with_local_refinement(&xics.smoothed_tics, &self.parameters.alignment)?,
+            _ => star_align_tics(&xics.smoothed_tics, &self.parameters.alignment)?,
         };
         
 
@@ -1129,20 +939,20 @@ impl Runner {
             log::trace!("Computing peak mapping scores");
             let start_time = Instant::now();
             let scored_peak_mappings =
-                compute_peak_mapping_scores(aligned.aligned_chromatograms.clone(), mapped_prec_peaks.clone());
+                compute_peak_mapping_scores(&aligned.aligned_chromatograms, &mapped_prec_peaks);
 
             // Create decoy aligned peaks based on the method specified in the parameters
             let mut decoy_peak_mappings: HashMap<String, Vec<PeakMapping>> = HashMap::new();
             if self.parameters.alignment.decoy_peak_mapping_method == "shuffle" {
                 log::trace!("Creating decoy peaks by shuffling query peaks");
-                decoy_peak_mappings = create_decoy_peaks_by_shuffling(&mapped_prec_peaks.clone());
+                decoy_peak_mappings = create_decoy_peaks_by_shuffling(&mapped_prec_peaks);
             } else if self.parameters.alignment.decoy_peak_mapping_method == "random_regions" {
                 log::trace!("Creating decoy peaks by picking random regions in the query XIC");
-                decoy_peak_mappings = create_decoy_peaks_by_random_regions(&aligned.aligned_chromatograms.clone(), &mapped_prec_peaks.clone(), self.parameters.alignment.decoy_window_size.unwrap_or_default());
+                decoy_peak_mappings = create_decoy_peaks_by_random_regions(&aligned.aligned_chromatograms, &mapped_prec_peaks, self.parameters.alignment.decoy_window_size.unwrap_or_default());
             }
             log::trace!("Computing peak mapping scores for decoy peaks");
             let scored_decoy_peak_mappings =
-                compute_peak_mapping_scores(aligned.aligned_chromatograms.clone(), decoy_peak_mappings.clone());
+                compute_peak_mapping_scores(&aligned.aligned_chromatograms, &decoy_peak_mappings);
 
             // Combine true and decoy peaks for analysis into HashMap<String, Vec<PeakMapping>>
             let all_peak_mappings: HashMap<String, Vec<PeakMapping>> = {
@@ -1171,7 +981,7 @@ impl Runner {
             && self.parameters.alignment.compute_scores.unwrap_or_default() {
                 let start_time = Instant::now();
                 log::trace!("Processing identifying transitions - aligning and scoring");
-                let id_peak_scores = self.process_identifying_transitions(aligned.group_id.clone(), precursor, aligned.aligned_chromatograms.clone(), scored_peak_mappings.clone(), aligned.common_rt_space.clone());
+                let id_peak_scores = self.process_identifying_transitions(aligned.group_id.clone(), precursor, &aligned.aligned_chromatograms, &scored_peak_mappings, &aligned.common_rt_space);
                 log::trace!("Identifying peak mapping scoring took: {:?}", start_time.elapsed());
                 id_peak_scores
         } else {
@@ -1190,26 +1000,11 @@ impl Runner {
         feature_access: &[OswAccess],
         results: &HashMap<i32, PrecursorAlignmentResult>,
     ) -> Result<()> {
-        // Initialize progress bar if enabled
-        let mut progress = if !self.parameters.disable_progress_bar {
-            Some(Progress::new(
-                results.len(),
-                "[arycal] Writing FEATURE_ALIGNMENT table to the database",
-            ))
-        } else {
-            None
-        };
-    
         // Collect all alignment scores from all precursors
         let mut all_scores = Vec::new();
         for alignment_result in results.values() {
             for run_scores in alignment_result.alignment_scores.values() {
                 all_scores.push(run_scores);
-            }
-    
-            // Update progress if enabled
-            if let Some(pb) = &mut progress {
-                pb.inc();
             }
         }
     
@@ -1232,26 +1027,11 @@ impl Runner {
         feature_access: &[OswAccess],
         results: &HashMap<i32, PrecursorAlignmentResult>,
     ) -> Result<()> {
-        // Initialize progress bar if enabled
-        let mut progress = if !self.parameters.disable_progress_bar {
-            Some(Progress::new(
-                results.len(),
-                "[arycal] Writing FEATURE_MS2_ALIGNMENT table to the database",
-            ))
-        } else {
-            None
-        };
-    
         // Collect all MS2 alignment results
         let mut all_ms2_alignments = Vec::new();
         for alignment_result in results.values() {
             for run_alignments in alignment_result.detecting_peak_mappings.values() {
                 all_ms2_alignments.extend(run_alignments.iter().cloned());
-            }
-    
-            // Update progress if enabled
-            if let Some(pb) = &mut progress {
-                pb.inc();
             }
         }
     
@@ -1276,16 +1056,6 @@ impl Runner {
         feature_access: &[OswAccess],
         results: &HashMap<i32, PrecursorAlignmentResult>,
     ) -> Result<()> {
-        // Initialize progress bar if enabled
-        let mut progress = if !self.parameters.disable_progress_bar {
-            Some(Progress::new(
-                results.len(),
-                "[arycal] Writing FEATURE_TRANSITION_ALIGNMENT table to the database",
-            ))
-        } else {
-            None
-        };
-    
         // Collect all transition alignment results
         let mut all_transition_alignments = Vec::new();
         for alignment_result in results.values() {
@@ -1293,11 +1063,6 @@ impl Runner {
                 for run_scores in transition_scores.values() {
                     all_transition_alignments.extend(run_scores.iter().cloned());
                 }
-            }
-    
-            // Update progress if enabled
-            if let Some(pb) = &mut progress {
-                pb.inc();
             }
         }
     
