@@ -277,5 +277,7 @@ pub struct AlignedChromatogram {
     /// Lag between the reference and query chromatograms (Only for FFT and FFT-DTW)
     pub lag: Option<isize>,
     /// Mapping of retention times between the original and aligned chromatograms
-    pub rt_mapping: Vec<HashMap<String, String>>,
+    pub rt_mapping: Vec<HashMap<String, f64>>,
+    /// basename of reference chromatogram
+    pub reference_basename: String,
 }

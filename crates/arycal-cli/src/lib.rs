@@ -473,7 +473,7 @@ impl Runner {
             let current_run = chrom.chromatogram.metadata.get("basename").unwrap();
             log::trace!(
                 "Mapping peaks from reference run: {} to current run: {}",
-                chrom.rt_mapping[0].get("run1").unwrap(),
+                chrom.reference_basename,
                 current_run
             );
 
@@ -487,7 +487,7 @@ impl Runner {
             // Get reference run feature data
             let ref_run_feat_data: Vec<_> = prec_feat_data
                 .iter()
-                .filter(|f| &f.basename == chrom.rt_mapping[0].get("run1").unwrap())
+                .filter(|f| f.basename == chrom.reference_basename)
                 .cloned()
                 .collect();
 
@@ -735,12 +735,12 @@ impl Runner {
         xics_batch: HashMap<i32, PrecursorXics>,
     ) -> anyhow::Result<HashMap<i32, AlignedTics>> {
         xics_batch
-            .par_iter()
+            .into_par_iter()
             .map(|(precursor_id, xics)| {
                 let start_time = Instant::now();
                 let aligned = self.align_tics(xics)?;
                 log::trace!("Alignment for precursor {} took: {:?} ({:?} MiB)", precursor_id, start_time.elapsed(), aligned.deep_size_of() / 1024 / 1024);
-                Ok((*precursor_id, aligned))
+                Ok((precursor_id, aligned))
             })
             .collect()
     }
@@ -748,7 +748,7 @@ impl Runner {
     // Align TICs for a single precursor
     fn align_tics(
         &self,
-        xics: &PrecursorXics,
+        xics: PrecursorXics,
     ) -> anyhow::Result<AlignedTics> {
         log::trace!("Aligning TICs using {:?} with reference type: {:?}", 
             self.parameters.alignment.method.as_str(), 
@@ -867,14 +867,14 @@ impl Runner {
                 let current_run = chrom.chromatogram.metadata.get("basename").unwrap();
 
                 // Check if current run is the reference run, if it is, skip mapping
-                if chrom.rt_mapping[0].get("run1").unwrap() == current_run {
+                if chrom.reference_basename == *current_run {
                     log::trace!("Current run is the reference run, skipping peak mapping for run: {}", current_run);
                     return None;
                 }
 
                 log::trace!(
                     "Mapping peaks from reference run: {} to current run: {}",
-                    chrom.rt_mapping[0].get("run1").unwrap(),
+                    chrom.reference_basename,
                     current_run
                 );
 
@@ -888,7 +888,7 @@ impl Runner {
                 // Get reference run feature data
                 let ref_run_feat_data: Vec<_> = prec_feat_data
                     .iter()
-                    .filter(|f| &f.basename == chrom.rt_mapping[0].get("run1").unwrap())
+                    .filter(|f| f.basename == chrom.reference_basename)
                     .cloned()
                     .collect();
 

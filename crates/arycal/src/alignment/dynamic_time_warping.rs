@@ -85,9 +85,9 @@ fn create_rt_mapping(
     optimal_path: &[(usize, usize)],
     chrom1: &Chromatogram,
     chrom2: &Chromatogram,
-) -> Vec<HashMap<String, String>> {
-    let run1_name = chrom1.metadata.get("basename").unwrap_or(&chrom1.native_id);
-    let run2_name = chrom2.metadata.get("basename").unwrap_or(&chrom2.native_id);
+) -> Vec<HashMap<String, f64>> {
+    // let run1_name = chrom1.metadata.get("basename").unwrap_or(&chrom1.native_id);
+    // let run2_name = chrom2.metadata.get("basename").unwrap_or(&chrom2.native_id);
 
     optimal_path.iter()
         .filter(|&&(i, j)| i > 0 && j > 0)
@@ -95,12 +95,12 @@ fn create_rt_mapping(
             let rt1 = chrom1.retention_times[i - 1];
             let rt2 = chrom2.retention_times[j - 1];
             
-            let mut entry = HashMap::with_capacity(5);
-            entry.insert("rt1".to_string(), rt1.to_string());
-            entry.insert("rt2".to_string(), rt2.to_string());
-            entry.insert("alignment".to_string(), format!("({}, {})", rt1, rt2));
-            entry.insert("run1".to_string(), run1_name.clone());
-            entry.insert("run2".to_string(), run2_name.clone());
+            let mut entry = HashMap::with_capacity(0);
+            entry.insert("rt1".to_string(), rt1);
+            entry.insert("rt2".to_string(), rt2);
+            // entry.insert("alignment".to_string(), format!("({}, {})", rt1, rt2));
+            // entry.insert("run1".to_string(), run1_name.clone());
+            // entry.insert("run2".to_string(), run2_name.clone());
             entry
         })
         .collect()
@@ -145,7 +145,7 @@ pub fn star_align_tics(
     // Process chromatograms in parallel
     let aligned_chromatograms: Vec<_> = smoothed_tics.par_iter()
         .enumerate()
-        .filter_map(|(idx, chrom)| {
+        .filter_map(|(_idx, chrom)| {
             let chrom_basename = chrom.metadata.get("basename").unwrap_or(&chrom.native_id);
             // if chrom_basename == ref_basename {
             //     return None; // Skip reference chromatogram
@@ -161,11 +161,19 @@ pub fn star_align_tics(
             let (_, aligned_chrom) = align_chromatograms(reference_chrom, chrom, &path);
             let rt_mapping = create_rt_mapping(&path, reference_chrom, chrom);
 
+            // Check if we want to retain the alignment path
+            let path_out = if params.retain_alignment_path {
+                path.to_vec()
+            } else {
+                Vec::new()
+            };
+
             Some(AlignedChromatogram {
                 chromatogram: aligned_chrom,
-                alignment_path: path.to_vec(),
+                alignment_path: path_out,
                 lag: None,
                 rt_mapping,
+                reference_basename: ref_basename.clone(),
             })
         })
         .collect();
@@ -241,6 +249,7 @@ pub fn progressive_align_tics(smoothed_tics: &Vec<Chromatogram>) -> Result<Vec<A
             alignment_path: dtw.path(),
             lag: None,
             rt_mapping: rt_mapping,
+            reference_basename: aligned_sum.metadata.get("basename").unwrap().to_string(),
         });
 
         // average aligned chromatograms
@@ -322,6 +331,7 @@ pub fn mst_align_tics(smoothed_tics: &Vec<Chromatogram>) -> Result<Vec<AlignedCh
                 alignment_path: dtw.path().clone(),
                 lag: None,
                 rt_mapping: rt_mapping.clone(),
+                reference_basename: chrom1.metadata.get("basename").unwrap().to_string(),
             });
             aligned_chromatogram_indices.insert(chrom1_idx);
         }
@@ -333,6 +343,7 @@ pub fn mst_align_tics(smoothed_tics: &Vec<Chromatogram>) -> Result<Vec<AlignedCh
                 alignment_path: dtw.path().clone(),
                 lag: None,
                 rt_mapping: rt_mapping.clone(),
+                reference_basename: chrom1.metadata.get("basename").unwrap().to_string(),
             });
             aligned_chromatogram_indices.insert(chrom2_idx);
         }

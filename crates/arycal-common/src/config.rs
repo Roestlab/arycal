@@ -149,6 +149,9 @@ pub struct AlignmentConfig {
     pub compute_scores: Option<bool>,
     /// Optionally output the scores to a separate OSW file. Otherwise, the scores are added to the input OSW file.
     pub scores_output_file: Option<String>,
+    /// Retain alignment path. Default is false. If include_identifying_transitions, this will be true, since we need to use the alignment path to apply the same alignment to the identifying transitions.
+    #[serde(default)]
+    pub retain_alignment_path: bool,
 }
 
 impl Default for AlignmentConfig {
@@ -168,6 +171,7 @@ impl Default for AlignmentConfig {
             decoy_window_size: Some(30),
             compute_scores: Some(true),
             scores_output_file: None,
+            retain_alignment_path: false,
         }
     }
 }

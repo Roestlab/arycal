@@ -33,10 +33,7 @@ pub fn compute_alignment_scores(
                 .unwrap_or(&aligned_chrom.chromatogram.native_id)
                 .to_string();
 
-            let reference_filename = match aligned_chrom.rt_mapping[0].get("run1") {
-                Some(name) => name,
-                None => return (aligned_filename, None),
-            };
+            let reference_filename = aligned_chrom.reference_basename.clone();
 
             let reference_chrom = match chrom_lookup.get(reference_filename.as_str()) {
                 Some(c) => c,
@@ -127,10 +124,12 @@ pub fn compute_peak_mapping_scores(
                 None => return (aligned_filename.clone(), peak_mappings_for_run),
             };
 
-            let reference_filename = match aligned_chrom.rt_mapping[0].get("run1") {
-                Some(name) => name,
-                None => return (aligned_filename.clone(), peak_mappings_for_run),
-            };
+            // let reference_filename = match aligned_chrom.rt_mapping[0].get("run1") {
+            //     Some(name) => name,
+            //     None => return (aligned_filename.clone(), peak_mappings_for_run),
+            // };
+
+            let reference_filename = aligned_chrom.reference_basename.clone();
 
             let reference_chrom = match chrom_lookup.get(reference_filename.as_str()) {
                 Some(c) => c,
@@ -232,10 +231,11 @@ pub fn compute_peak_mapping_transitions_scores(
                     None => return Vec::new(),
                 };
                 
-                let reference_filename = match current_chrom.rt_mapping[0].get("run1") {
-                    Some(name) => name,
-                    None => return Vec::new(),
-                };
+                // let reference_filename = match current_chrom.rt_mapping[0].get("run1") {
+                //     Some(name) => name,
+                //     None => return Vec::new(),
+                // };
+                let reference_filename = current_chrom.reference_basename.clone();
                 
                 let reference_chrom = match chrom_lookup.get(reference_filename.as_str()) {
                     Some(c) => c,

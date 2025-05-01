@@ -26,9 +26,9 @@ pub fn create_fft_dtw_rt_mapping(
     lag: isize,
     chrom1: &Chromatogram,
     chrom2: &Chromatogram,
-) -> Vec<HashMap<String, String>> {
-    let run1_name = chrom1.metadata.get("basename").unwrap_or(&chrom1.native_id).to_string();
-    let run2_name = chrom2.metadata.get("basename").unwrap_or(&chrom2.native_id).to_string();
+) -> Vec<HashMap<String, f64>> {
+    // let run1_name = chrom1.metadata.get("basename").unwrap_or(&chrom1.native_id).to_string();
+    // let run2_name = chrom2.metadata.get("basename").unwrap_or(&chrom2.native_id).to_string();
 
     chrom1.retention_times
         .iter()
@@ -36,12 +36,12 @@ pub fn create_fft_dtw_rt_mapping(
         .filter_map(|(i, &rt1)| {
             let j = (i as isize + lag) as usize;
             chrom2.retention_times.get(j).map(|&rt2| {
-                let mut entry = HashMap::with_capacity(5);
-                entry.insert("rt1".to_string(), rt1.to_string());
-                entry.insert("rt2".to_string(), rt2.to_string());
-                entry.insert("alignment".to_string(), format!("({}, {})", rt1, rt2));
-                entry.insert("run1".to_string(), run1_name.clone());
-                entry.insert("run2".to_string(), run2_name.clone());
+                let mut entry = HashMap::with_capacity(0);
+                entry.insert("rt1".to_string(), rt1);
+                entry.insert("rt2".to_string(), rt2);
+                // entry.insert("alignment".to_string(), format!("({}, {})", rt1, rt2));
+                // entry.insert("run1".to_string(), run1_name.clone());
+                // entry.insert("run2".to_string(), run2_name.clone());
                 entry
             })
         })
@@ -118,6 +118,13 @@ pub fn star_align_tics_fft_with_local_refinement(
                 .map(|&(_, j)| (aligned_chrom.retention_times[j], aligned_chrom.intensities[j]))
                 .unzip();
 
+            // Check if we want to retain the alignment path
+            let path_out = if params.retain_alignment_path {
+                path.to_vec()
+            } else {
+                Vec::new()
+            };
+
             aligned_chrom.retention_times = refined_rt;
             aligned_chrom.intensities = refined_intensities;
 
@@ -125,9 +132,10 @@ pub fn star_align_tics_fft_with_local_refinement(
 
             AlignedChromatogram {
                 chromatogram: aligned_chrom,
-                alignment_path: path.to_vec(),
+                alignment_path: path_out,
                 lag: Some(lag),
                 rt_mapping: mapping,
+                reference_basename: ref_name.to_string(),
             }
         })
         .collect();

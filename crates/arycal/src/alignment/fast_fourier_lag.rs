@@ -79,20 +79,20 @@ pub fn create_fft_rt_mapping(
     _lag: isize,
     chrom1: &Chromatogram,
     chrom2: &Chromatogram,
-) -> Vec<HashMap<String, String>> {
-    let run1_name = chrom1.metadata.get("basename").unwrap_or(&chrom1.native_id).to_string();
-    let run2_name = chrom2.metadata.get("basename").unwrap_or(&chrom2.native_id).to_string();
+) -> Vec<HashMap<String, f64>> {
+    // let run1_name = chrom1.metadata.get("basename").unwrap_or(&chrom1.native_id).to_string();
+    // let run2_name = chrom2.metadata.get("basename").unwrap_or(&chrom2.native_id).to_string();
 
     chrom1.retention_times
         .iter()
         .zip(chrom2.retention_times.iter())
         .map(|(&rt1, &rt2)| {
-            let mut entry = HashMap::with_capacity(5);
-            entry.insert("rt1".to_string(), rt1.to_string());
-            entry.insert("rt2".to_string(), rt2.to_string());
-            entry.insert("alignment".to_string(), format!("({}, {})", rt1, rt2));
-            entry.insert("run1".to_string(), run1_name.clone());
-            entry.insert("run2".to_string(), run2_name.clone());
+            let mut entry = HashMap::with_capacity(0);
+            entry.insert("rt1".to_string(), rt1);
+            entry.insert("rt2".to_string(), rt2);
+            // entry.insert("alignment".to_string(), format!("({}, {})", rt1, rt2));
+            // entry.insert("run1".to_string(), run1_name.clone());
+            // entry.insert("run2".to_string(), run2_name.clone());
             entry
         })
         .collect()
@@ -160,6 +160,7 @@ pub fn star_align_tics_fft(
                 alignment_path: Vec::new(), // No path for FFT
                 lag: Some(lag),
                 rt_mapping: create_fft_rt_mapping(lag, reference_chrom, chrom),
+                reference_basename: ref_name.clone(),
             }
         })
         .collect();
@@ -230,6 +231,11 @@ pub fn progressive_align_tics_fft(
             alignment_path: vec![], // No path for FFT-based alignment
             lag: Some(lag),
             rt_mapping: rt_mapping, 
+            reference_basename: aligned_sum
+                .metadata
+                .get("basename")
+                .unwrap_or(&aligned_sum.native_id)
+                .clone(),
         });
     }
 
@@ -305,6 +311,7 @@ pub fn mst_align_tics_fft(
                 alignment_path: vec![],
                 lag: Some(lag),
                 rt_mapping: rt_mapping.clone(),
+                reference_basename: chrom1.metadata.get("basename").unwrap_or(&chrom1.native_id).clone(),
             });
             aligned_chromatogram_indices.insert(chrom1_idx);
         }
@@ -315,6 +322,7 @@ pub fn mst_align_tics_fft(
             alignment_path: vec![],
             lag: Some(lag),
             rt_mapping,
+            reference_basename: chrom1.metadata.get("basename").unwrap_or(&chrom1.native_id).clone(),
         });
         aligned_chromatogram_indices.insert(chrom2_idx);
 
