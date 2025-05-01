@@ -770,7 +770,6 @@ impl Runner {
             "fftdtw" => star_align_tics_fft_with_local_refinement(&xics.smoothed_tics, &self.parameters.alignment)?,
             _ => star_align_tics(&xics.smoothed_tics, &self.parameters.alignment)?,
         };
-        
 
         Ok(AlignedTics {
             precursor_id: xics.precursor_id,

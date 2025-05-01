@@ -45,6 +45,14 @@ impl Input {
             log::warn!("Multiple XIC files passed and only one feature file passed. Assuming the feature file contains features for all XIC files.");
         }
 
+        // Check if optional filters.include_identifying_transitions is set to true, if it is, ensure alignment.retain_alignment_path is set to true as well if it's not, then set it to true
+        if let Some(include_identifying_transitions) = input.filters.include_identifying_transitions {
+            if include_identifying_transitions && !input.alignment.retain_alignment_path {
+                log::warn!("`filters.include-identifying-transitions` is set to true, but `alignment.retain-alignment-path` is not set. Setting `alignment.retain-alignment-path` to true.");
+                input.alignment.retain_alignment_path = true;
+            }
+        }
+
         Ok(input)
     }
 

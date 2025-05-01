@@ -281,3 +281,4 @@ pub struct AlignedChromatogram {
     /// basename of reference chromatogram
     pub reference_basename: String,
 }
+
