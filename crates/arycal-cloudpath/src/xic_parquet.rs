@@ -96,7 +96,7 @@ impl ChromatogramReader for DuckDBParquetChromatogramReader {
         )?;
         
         if !loaded {
-            return Err(anyhow!("Failed to load parquet extension"));
+            return Err(anyhow::anyhow!("Failed to load parquet extension"));
         }
 
         Ok(DuckDBParquetChromatogramReader {
