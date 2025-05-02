@@ -142,7 +142,9 @@ pub fn star_align_tics_fft(
     params: &AlignmentConfig,
 ) -> Result<Vec<AlignedChromatogram>, AnyHowError> {
     if smoothed_tics.len() < 2 {
-        return Err(AnyHowError::msg("At least two chromatograms are required for alignment"));
+        // return Err(AnyHowError::msg("At least two chromatograms are required for alignment"));
+        log::warn!("At least two chromatograms are required for alignment - returning empty result");
+        return Ok(Vec::new());
     }
 
     // Random reference selection (keeping original method)

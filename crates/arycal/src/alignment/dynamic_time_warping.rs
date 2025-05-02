@@ -136,7 +136,9 @@ pub fn star_align_tics(
 ) -> Result<Vec<AlignedChromatogram>, AnyHowError> {
     // Early return if insufficient chromatograms
     if smoothed_tics.len() < 2 {
-        return Err(AnyHowError::msg("At least two chromatograms are required for alignment"));
+        // return Err(AnyHowError::msg("At least two chromatograms are required for alignment"));
+        log::warn!("At least two chromatograms are required for alignment - returning empty result");
+        return Ok(Vec::new());
     }
 
     // Select reference chromatogram

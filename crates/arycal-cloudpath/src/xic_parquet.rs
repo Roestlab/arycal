@@ -394,6 +394,7 @@ impl ChromatogramReader for DuckDBParquetChromatogramReader {
                 .join(",")
         );
 
+        let start_time = std::time::Instant::now();
         let mut stmt = self.conn.prepare(&query)?;
         let rows = stmt.query_map([], |row| {  // <- Empty params here since we formatted everything
             Ok((
@@ -405,8 +406,11 @@ impl ChromatogramReader for DuckDBParquetChromatogramReader {
                 row.get::<_, i32>(5)?,
             ))
         })?;
+        let elapsed_time = start_time.elapsed();
+        // println!("Query execution time: {:?}", elapsed_time);
 
         // 3. Parallel processing of chromatograms
+        let start_time = std::time::Instant::now();
         let rows: Vec<_> = rows.collect::<Result<Vec<_>, _>>()?;
         let mut precursor_groups = rows
             .par_iter()
@@ -465,6 +469,8 @@ impl ChromatogramReader for DuckDBParquetChromatogramReader {
                     a
                 }
             );
+        let elapsed_time = start_time.elapsed();
+        // println!("Parallel chromatogram decompressing processing time: {:?}", elapsed_time);
 
         // 4. Optimized metadata handling
         let basename = extract_basename(&self.file);
@@ -500,7 +506,46 @@ mod tests {
         let reader =
             DuckDBParquetChromatogramReader::new(db_path).expect("Failed to create reader");
 
+        let start_time = std::time::Instant::now();
         let chromatograms = reader.read_chromatograms_for_precursors(&precursors, true, 1);
-        println!("Chromatograms: {:?}", chromatograms);
+        let elapsed_time = start_time.elapsed();
+        // println!("Chromatograms: {:?}", chromatograms);
+        println!("read_chromatograms_for_precursors for {:?} precursrs elapsed time: {:?}", precursors.len(), elapsed_time);
+
+        let precursors = vec![
+            PrecursorIdData {
+                precursor_id: 29,
+                unmodified_sequence: "ANSSPTTNIDHLK".to_string(),
+                modified_sequence: "ANS(UniMod:21)SPTTNIDHLK(UniMod:259)".to_string(),
+                precursor_charge: 2,
+                transition_ids: vec![174, 175, 176, 177, 178, 179],
+                identifying_transition_ids: Vec::new(),
+                decoy: false,
+            },
+            PrecursorIdData {
+                precursor_id: 33,
+                unmodified_sequence: "ANSSPTTNIDHLK".to_string(),
+                modified_sequence: "ANSS(UniMod:21)PTTNIDHLK(UniMod:259)".to_string(),
+                precursor_charge: 2,
+                transition_ids: vec![200, 198, 201, 199, 202, 203],
+                identifying_transition_ids: Vec::new(),
+                decoy: false,
+            },
+            PrecursorIdData {
+                precursor_id: 2018,
+                unmodified_sequence: "KDSNTNIVLLK".to_string(),
+                modified_sequence: "KDSNT(UniMod:21)NIVLLK(UniMod:259)".to_string(),
+                precursor_charge: 3,
+                transition_ids: vec![3114, 3119, 3115, 3117, 3118, 3118],
+                identifying_transition_ids: Vec::new(),
+                decoy: false,
+            },
+        ];
+
+        let start_time = std::time::Instant::now();
+        let chromatograms = reader.read_chromatograms_for_precursors(&precursors, true, 1);
+        let elapsed_time = start_time.elapsed();
+        // println!("Chromatograms: {:?}", chromatograms);
+        println!("read_chromatograms_for_precursors for {:?} precursrs elapsed time: {:?}", precursors.len(), elapsed_time);
     }
 }

@@ -793,6 +793,16 @@ impl Runner {
             _ => star_align_tics(&xics.smoothed_tics, &self.parameters.alignment)?,
         };
 
+        if aligned_chromatograms.is_empty() {
+            log::trace!("There was not alignment for precursor {} for {} xics", xics.precursor_id, xics.smoothed_tics.len());
+            return Ok(AlignedTics {
+                precursor_id: xics.precursor_id,
+                group_id: xics.group_id.clone(),
+                common_rt_space: xics.common_rt_space.clone(),
+                aligned_chromatograms: Vec::new(),
+            });
+        }
+
         Ok(AlignedTics {
             precursor_id: xics.precursor_id,
             group_id: xics.group_id.clone(),
