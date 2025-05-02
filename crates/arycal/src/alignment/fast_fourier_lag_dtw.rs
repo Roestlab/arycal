@@ -103,15 +103,23 @@ pub fn star_align_tics_fft_with_local_refinement(
 
     // Random reference selection (keeping original method)
     let reference_chrom = if let Some(ref_chrom) = &params.reference_run {
-        smoothed_tics.iter()
-            .find(|x| x.metadata.get("basename").unwrap_or(&x.native_id) == &extract_basename(ref_chrom))
-            .ok_or_else(|| AnyHowError::msg("Reference chromatogram not found"))?
+        match smoothed_tics.iter()
+            .find(|x| x.metadata.get("basename").unwrap_or(&x.native_id) == &extract_basename(ref_chrom)) 
+        {
+            Some(chrom) => chrom,
+            None => {
+                log::warn!("Specified reference chromatogram not found - returning empty result");
+                return Ok(Vec::new());  // Return empty vector immediately
+            }
+        }
     } else {
         let mut rng = rand::rng();
         let binding = (0..smoothed_tics.len()).collect::<Vec<_>>();
         let reference_idx = binding.choose(&mut rng).unwrap();
         &smoothed_tics[*reference_idx]
     };
+
+
 
     let ref_intensities = Array1::from(reference_chrom.intensities.clone());
     let ref_rt = &reference_chrom.retention_times;
