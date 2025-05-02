@@ -24,7 +24,8 @@ parquet = "54.2.1"
 # fastrace = { version = "0.7", features = ["enable"] }
 sysinfo = "0.34.2"
 deepsize = "0.2.0"
-rlimit = "0.7"
+[target.'cfg(unix)'.dependencies]
+rlimit = "0.10.2"
 
 # Optional MPI support
 mpi = { version = "0.8.0", optional = true }

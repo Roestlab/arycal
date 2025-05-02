@@ -3,12 +3,21 @@ use anyhow::Result;
 use std::sync::{Arc, Mutex};
 use arycal_cli::input::Input; 
 use arycal_cli::Runner;
-
+#[cfg(not(target_os = "windows"))]
 use rlimit::{Resource, setrlimit};
 
 fn increase_limits() -> Result<(), anyhow::Error> {
-    // Increase file descriptor limit
-    setrlimit(Resource::NOFILE, 65536, 65536)?;
+    #[cfg(not(target_os = "windows"))]
+    {
+        // Increase file descriptor limit (Unix only)
+        setrlimit(Resource::NOFILE, 65536, 65536)?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // Windows equivalent or no-op
+        // Windows handles file descriptors differently
+        log::warn!("File descriptor limits not adjustable on Windows. This may mean you can only process a limited number of files.");
+    }
     Ok(())
 }
 
