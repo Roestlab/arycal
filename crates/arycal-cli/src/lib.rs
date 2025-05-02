@@ -88,7 +88,7 @@ impl Runner {
                 }
             })
             .collect::<Result<Vec<_>, _>>()?;
-        log::trace!("Creating {:?} XIC file accessors took: {:?}", &parameters.xic.file_paths.len(), start_io.elapsed());
+        // log::trace!("Creating {:?} XIC file accessors took: {:?}", &parameters.xic.file_paths.len(), start_io.elapsed());
 
         Ok(Self {
             precursor_map: precursor_map.clone(),
@@ -891,7 +891,7 @@ impl Runner {
         /* ------------------------------------------------------------------ */
         /* Aligned Peak Mapping                                       */
         /* ------------------------------------------------------------------ */
-        log::trace!("Mapping peaks for precursor: {:?} for {:?} aligned chromatograms", precursor.precursor_id, aligned.aligned_chromatograms.len());
+        // log::trace!("Mapping peaks for precursor: {:?} for {:?} aligned chromatograms", precursor.precursor_id, aligned.aligned_chromatograms.len());
         let peak_mapping_results: Vec<_> = aligned.aligned_chromatograms
             .par_iter()
             .filter_map(|chrom| {
@@ -903,11 +903,11 @@ impl Runner {
                     return None;
                 }
 
-                log::trace!(
-                    "Mapping peaks from reference run: {} to current run: {}",
-                    chrom.reference_basename,
-                    current_run
-                );
+                // log::trace!(
+                //     "Mapping peaks from reference run: {} to current run: {}",
+                //     chrom.reference_basename,
+                //     current_run
+                // );
 
                 // Filter prec_feat_data for current run
                 let current_run_feat_data: Vec<_> = prec_feat_data

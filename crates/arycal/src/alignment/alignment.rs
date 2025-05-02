@@ -194,11 +194,11 @@ pub fn construct_mst(
 /// Validates the widths of two peaks and switches the order if necessary.
 pub fn validate_widths(left_width: f64, right_width: f64) -> (f64, f64) {
     if left_width >= right_width {
-        log::trace!(
-            "Invalid widths: left_width ({}) is not smaller than right_width ({}). Switching the order.",
-            left_width,
-            right_width
-        );
+        // log::trace!(
+        //     "Invalid widths: left_width ({}) is not smaller than right_width ({}). Switching the order.",
+        //     left_width,
+        //     right_width
+        // );
         (right_width, left_width)
     } else {
         (left_width, right_width)
@@ -404,20 +404,20 @@ pub fn map_peaks_across_runs(
         .enumerate()
         .filter_map(|(i, &rt)| {
             let target_rt = map_retention_time(rt, &aligned_chrom.rt_mapping);
-            log::trace!(
-                "Mapping closest aligned query RT: {:?} to reference RT feature: {:?}", 
-                target_rt, rt
-            );
+            // log::trace!(
+            //     "Mapping closest aligned query RT: {:?} to reference RT feature: {:?}", 
+            //     target_rt, rt
+            // );
 
             find_closest_feature(target_rt, &aligned_features, rt_tolerance)
                 .map(|(aligned_feature_id, aligned_rt, aligned_left_width, aligned_right_width)| {
-                    log::trace!(
-                        "Found query feature (id: {}) mapping to reference feature (id: {}): {} -> {}",
-                        aligned_feature_id, 
-                        ref_feature_ids.unwrap()[i], 
-                        aligned_rt, 
-                        rt
-                    );
+                    // log::trace!(
+                    //     "Found query feature (id: {}) mapping to reference feature (id: {}): {} -> {}",
+                    //     aligned_feature_id, 
+                    //     ref_feature_ids.unwrap()[i], 
+                    //     aligned_rt, 
+                    //     rt
+                    // );
 
                     let (validated_left_width_ref, validated_right_width_ref) = validate_widths(
                         ref_left_widths.unwrap()[i],
@@ -484,7 +484,7 @@ fn remove_overlapping_peaks(peak_mappings: Vec<PeakMapping>) -> Vec<PeakMapping>
         let mut prev_peak: Option<PeakMapping> = None;
         for peak in sorted_peaks {
             if let Some(prev) = &prev_peak {
-                log::trace!("Checking for overlapping peaks: Peak 1 (RT: {}), Peak 2 (RT: {})", prev.reference_rt, peak.reference_rt);
+                // log::trace!("Checking for overlapping peaks: Peak 1 (RT: {}), Peak 2 (RT: {})", prev.reference_rt, peak.reference_rt);
                 // Check if the current peak overlaps with the previous peak
                 let current_left = peak.reference_left_width;
                 let current_right = peak.reference_right_width;
@@ -502,13 +502,13 @@ fn remove_overlapping_peaks(peak_mappings: Vec<PeakMapping>) -> Vec<PeakMapping>
                     if peak.aligned_feature_id != -1 || peak.reference_feature_id != -1 {
                         // Prefer the peak with a valid feature ID
                         if prev.aligned_feature_id == -1 && prev.reference_feature_id == -1 {
-                            log::trace!("Removing overlapping peaks with missing feature IDs");
+                            // log::trace!("Removing overlapping peaks with missing feature IDs");
                             // Replace the previous peak with the current one
                             non_overlapping_peaks.pop();
                             non_overlapping_peaks.push(peak.clone());
                         }
                     } else {
-                        log::trace!("Both peaks have missing feature IDs: computing a consensus peak");
+                        // log::trace!("Both peaks have missing feature IDs: computing a consensus peak");
                         // Both peaks have missing IDs: compute a consensus peak
                         let consensus_peak = PeakMapping {
                             alignment_id: peak.alignment_id,

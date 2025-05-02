@@ -154,7 +154,7 @@ pub fn star_align_tics(
     };
 
     let ref_basename = reference_chrom.metadata.get("basename").unwrap_or(&reference_chrom.native_id);
-    log::trace!("Selected reference run: {}", ref_basename);
+    // log::trace!("Selected reference run: {}", ref_basename);
 
     // Pre-compute reference intensities once
     let ref_intensities = &reference_chrom.intensities;
@@ -168,7 +168,7 @@ pub fn star_align_tics(
             //     return None; // Skip reference chromatogram
             // }
 
-            log::trace!("Aligning run: {} to reference", chrom_basename);
+            // log::trace!("Aligning run: {} to reference", chrom_basename);
 
             // Compute DTW alignment
             let dtw = DynamicTimeWarping::between(ref_intensities, &chrom.intensities);
