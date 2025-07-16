@@ -107,12 +107,24 @@ impl FeaturesConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FiltersConfig {
     pub decoy: bool,
     pub include_identifying_transitions: Option<bool>,
+    pub max_score_ms2_qvalue: Option<f64>,
     /// TSV file containing the list of precursors to filter for.
     pub precursor_ids: Option<String>
+}
+
+impl Default for FiltersConfig {
+    fn default() -> Self {
+        FiltersConfig {
+            decoy: false,
+            include_identifying_transitions: Some(false),
+            max_score_ms2_qvalue: Some(1.0),
+            precursor_ids: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -207,5 +219,75 @@ impl std::fmt::Display for AlignmentConfig {
             self.compute_scores.unwrap_or_default(),
             self.scores_output_file
         )
+    }
+}
+
+
+// ****************************
+// GUI Specific Configurations
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum PlotMode {
+    Floating,
+    EmbeddedGrid,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VisualizationConfig {
+    /// What the user typed to filter the peptide list
+    pub peptide_filter: String,
+    /// the user’s search text for the peptide dropdown
+    pub peptide_search: String,
+    /// the list of full peptide names (populated at load time)
+    pub peptide_list: Vec<String>,
+    /// charge states available for the selected peptide
+    pub charge_list: Vec<usize>,
+    /// what the user has selected
+    pub selected_peptide: Option<String>,
+    pub selected_charge: Option<usize>,
+    
+    /// smoothing parameters
+    pub smoothing_enabled: bool,
+    pub sgolay_window: usize,
+    pub sgolay_order: usize,
+    pub link_axis_x: bool,
+    pub link_axis_y: bool,
+    pub link_cursor: bool,
+
+    /// Plotting configuration
+    pub show_background: bool,
+    pub show_grid: bool,
+    pub show_legend: bool,
+    pub show_title: bool,
+    pub show_axis_labels: bool,
+    pub plot_mode:  PlotMode,
+    pub grid_rows:  usize,
+    pub grid_cols:  usize,
+}
+
+impl Default for VisualizationConfig {
+    fn default() -> Self {
+        VisualizationConfig {
+            peptide_filter: String::new(),
+            peptide_search: String::new(),
+            peptide_list: Vec::new(),
+            charge_list: Vec::new(),
+            selected_peptide: None,
+            selected_charge: None,
+            smoothing_enabled: true,
+            sgolay_window: 11,
+            sgolay_order: 3,
+            link_axis_x: true,
+            link_axis_y: true,
+            link_cursor: true,
+            show_background: true,
+            show_grid: true,
+            show_legend: true,
+            show_title: true,
+            show_axis_labels: true,
+            plot_mode:       PlotMode::EmbeddedGrid,
+            grid_rows:       1,
+            grid_cols:       1,
+        }
     }
 }

@@ -9,9 +9,8 @@ arycal-common = { path = "../arycal-common/"}
 log = "0.4.0"
 serde = { version="1.0", features = ["derive"] }
 serde_json = "1.0"
-rusqlite = { version = "0.33.0", features = ["bundled"] }  
-r2d2 = "0.8.0"       # Connection pooling
-r2d2_sqlite = "0.26.0" # SQLite connection manager for r2d2
+# r2d2 = "0.8.10"       # Connection pooling
+# r2d2_sqlite = "0.27.0" # SQLite connection manager for r2d2
 flate2 = "1.0"     # For compression (if needed)
 bytemuck = "1.7"
 ordered-float = "5.0.0"
@@ -23,3 +22,5 @@ rayon = "1.5"
 #parquet = "55.0.0"
 #arrow = "55.0.0"
 duckdb = { version = "1.2.2", features = ["bundled", "parquet"] }
+
+rusqlite = { git="https://github.com/trevyn/rusqlite", branch="wasm32-unknown-unknown", features=["bundled"] }#"0.27.0"

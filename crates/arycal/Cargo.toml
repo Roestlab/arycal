@@ -12,9 +12,9 @@ log = "0.4.14"
 ndarray = { version = "0.15", features = ["rayon"] }
 # ndarray = { version = "0.15", features = ["blas"] }
 # blas-src = { version = "0.10", features = ["openblas"] }
-rusqlite = { version = "0.33.0", features = ["bundled"] }  
-r2d2 = "0.8.0"       # Connection pooling
-r2d2_sqlite = "0.26.0" # SQLite connection manager for r2d2
+
+# r2d2 = "0.8.10"       # Connection pooling
+# r2d2_sqlite = "0.27.0" # SQLite connection manager for r2d2
 nalgebra = "0.33.0"
 anyhow = "1.0"
 union-find = "0.4.3"
@@ -22,6 +22,8 @@ rand = "0.9.0"
 rustfft = "6.2.0"
 fftconvolve = "0.1.1"
 dtw_rs = "0.9.5"
+
+rusqlite = { git="https://github.com/trevyn/rusqlite", branch="wasm32-unknown-unknown", features=["bundled"] }#"0.27.0"
 
 # linfa = "0.7.1"
 # linfa-clustering = "0.7.1"

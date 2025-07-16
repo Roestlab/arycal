@@ -1,4 +1,8 @@
 mod config;
+mod tabs;
+mod panels;
+mod app;
+pub mod static_assets;
 
 use arycal_cli::input::Input;
 use config::AppConfig;
@@ -46,7 +50,7 @@ impl ArycalApp {
                 ui.vertical(|ui| {
                     egui::ScrollArea::vertical().show(ui, |ui| {
                         ui.add(
-                            egui::Image::new(egui::include_image!("../../../assets/img/arycal_logo.png"))
+                            egui::Image::new(egui::include_image!("../../../assets/img/arycal_logo_new.png"))
                                 .corner_radius(5)
                         );
                         ui.heading("Arycal Configuration");

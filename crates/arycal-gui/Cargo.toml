@@ -5,16 +5,38 @@ edition = "2021"
 
 [dependencies]
 arycal-cli = { path = "../arycal-cli/"}
+arycal-common = { path = "../arycal-common/" }
+arycal-cloudpath = { path = "../arycal-cloudpath/" }
 
+anyhow = "1.0"
 env_logger = "0.11.6"
 log = "0.4.0"
-egui = "0.31.0"
-eframe = "0.31.0"
-egui_extras = { version = "*", features = ["all_loaders"] }
-image = { version = "0.25", features = ["png"] } # Add the types you want support for
+egui   = "0.32"
+egui_plot  = { version = "0.33", features = ["serde"] }
+egui_tiles = "0.13.0"
+eframe = "0.32"
+egui_extras = { version = "0.32", features = ["all_loaders"] }
+image = { version = "0.25", features = ["png"] } # Add the types you want support 
 
 rfd = "0.15.2"
-os_pipe = "1.2.1"
 libc = "0.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+
+# WebAssembly 
+tiny_http     = "0.12"
+mime_guess    = "2.0"
+rust-embed    = "6.4"
+wasm-bindgen = "0.2"
+
+# Only include sysinfo on non-WASM builds:
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+sysinfo = "0.34.2"
+os_pipe = "1.2.1"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.3.3", default-features = false, features = ["wasm_js"] }
+
+[lib]
+name = "arycal_gui"
+crate-type = ["cdylib", "rlib"]
