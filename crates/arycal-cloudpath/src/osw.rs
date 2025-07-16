@@ -4,6 +4,7 @@ use rusqlite::{params, Connection, Error as RusqliteError, Result};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, time::Duration};
 use std::collections::HashSet;
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 use std::path::Path;
@@ -402,6 +403,194 @@ impl OswAccess {
             .collect()
     }
 
+    /// Fetches a mapping from each modified peptide sequence to its available precursor charge states.
+    ///
+    /// Executes a SQL query against the OpenSwath feature database, joining
+    /// the PRECURSOR, PRECURSOR_PEPTIDE_MAPPING, and PEPTIDE tables, and
+    /// retrieving `MODIFIED_SEQUENCE` and `PRECURSOR.CHARGE`. Optionally
+    /// filters out decoy precursors when `filter_decoys` is `true`.
+    ///
+    /// # Arguments
+    ///
+    /// * `filter_decoys` – if `true`, only include rows where `PRECURSOR.DECOY = 0` (non-decoys).
+    ///
+    /// # Returns
+    ///
+    /// A `BTreeMap<String, Vec<u8>>` mapping each unique modified peptide sequence
+    /// to a **sorted, deduplicated** list of its charge states.
+    ///
+    /// # Errors
+    ///
+    /// Returns `OpenSwathSqliteError` if preparing or executing the SQL query fails.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// let table = reader.fetch_full_peptide_precursor_table(false)?;
+    /// for (peptide, charges) in &table {
+    ///     println!("{} → charges: {:?}", peptide, charges);
+    /// }
+    /// ```
+    pub fn fetch_full_peptide_precursor_table(
+        &self,
+        filter_decoys: bool,
+    ) -> Result<BTreeMap<String, Vec<u8>>, OpenSwathSqliteError> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+
+        let base_query = r#"
+            SELECT
+                PEPTIDE.MODIFIED_SEQUENCE,
+                PRECURSOR.CHARGE AS PRECURSOR_CHARGE
+            FROM PRECURSOR
+            INNER JOIN PRECURSOR_PEPTIDE_MAPPING
+                ON PRECURSOR.ID = PRECURSOR_PEPTIDE_MAPPING.PRECURSOR_ID
+            INNER JOIN PEPTIDE
+                ON PEPTIDE.ID = PRECURSOR_PEPTIDE_MAPPING.PEPTIDE_ID
+        "#;
+
+        let query = if filter_decoys {
+            format!("{} WHERE PRECURSOR.DECOY=0", base_query)
+        } else {
+            base_query.to_string()
+        };
+
+        let mut stmt = conn
+            .prepare(&query)
+            .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+
+        // A BTreeMap will keep the peptide keys sorted for the UI dropdown.
+        let mut map: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+
+        let rows = stmt
+            .query_map([], |row| {
+                // Read out just the two fields we care about:
+                let seq: String = row.get("MODIFIED_SEQUENCE")?;
+                let charge: u8 = row.get("PRECURSOR_CHARGE")?;
+                Ok((seq, charge))
+            })
+            .map_err(OpenSwathSqliteError::from)?;
+
+        for row_res in rows {
+            let (seq, charge) = row_res.map_err(OpenSwathSqliteError::from)?;
+            let entry = map.entry(seq).or_default();
+            entry.push(charge);
+        }
+
+        // Deduplicate & sort each charge‐list in place:
+        for charges in map.values_mut() {
+            charges.sort_unstable();
+            charges.dedup();
+        }
+
+        Ok(map)
+    }
+
+    /// Fetch native ids for peptide precursor
+    /// 
+    /// Retreive the native IDs (PRECURSOR_ID and TRANSITION_ID) as lists of strings given a peptide sequence (string) and charge (i32).
+    /// 
+    /// # Parameters
+    /// - `modified_sequence`: The modified peptide sequence to filter by.
+    /// - `precursor_charge`: The charge state of the precursor to filter by.
+    /// - `include_precursor`: A boolean flag to include the precursor ID in the result.
+    /// - `max_number_of_isotopes`: The maximum number of isotopes to consider for the precursor.
+    /// - `include_identifying_transitions`: A boolean flag to include identifying transitions in the result.
+    /// 
+    /// # Returns
+    /// A vector of strings containing the native IDs for SqMass, which includes the precursor ID and transition IDs.
+    pub fn fetch_native_ids(
+        &self,
+        modified_sequence: &str,
+        precursor_charge: i32,
+        include_precursor: bool,
+        max_number_of_isotopes: usize,
+        include_identifying_transitions: bool
+    ) -> Result<Vec<String>, OpenSwathSqliteError> {
+        // 1) Get a connection
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+    
+        // 2) Fetch all matching precursor IDs in one go
+        let mut stmt = conn
+            .prepare(r#"
+                SELECT PRECURSOR.ID
+                FROM PRECURSOR
+                INNER JOIN PRECURSOR_PEPTIDE_MAPPING
+                  ON PRECURSOR_PEPTIDE_MAPPING.PRECURSOR_ID = PRECURSOR.ID
+                INNER JOIN PEPTIDE
+                  ON PEPTIDE.ID = PRECURSOR_PEPTIDE_MAPPING.PEPTIDE_ID
+                WHERE PEPTIDE.MODIFIED_SEQUENCE = ?1
+                  AND PRECURSOR.CHARGE          = ?2
+            "#)
+            .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+    
+        let precursor_ids: Vec<i32> = stmt
+            .query_map(params![modified_sequence, precursor_charge], |row| row.get(0))
+            .map_err(OpenSwathSqliteError::from)?
+            .collect::<Result<_, _>>()
+            .map_err(OpenSwathSqliteError::from)?;
+    
+        // If no precursors, early return an empty list
+        if precursor_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+    
+        // 3) Fetch all transition IDs for those precursors in one IN-query
+        //    Build a parameter placeholder list like "?, ?, ?, ..."
+        let placeholders = std::iter::repeat("?")
+            .take(precursor_ids.len())
+            .collect::<Vec<_>>()
+            .join(",");
+    
+        let mut sql = format!(
+            "SELECT TRANSITION_ID FROM TRANSITION_PRECURSOR_MAPPING INNER JOIN TRANSITION ON TRANSITION.ID = TRANSITION_PRECURSOR_MAPPING.TRANSITION_ID WHERE PRECURSOR_ID IN ({})",
+            placeholders
+        );
+
+        // If include_identifying_transitions is false, we need to add a condition to filter out identifying transitions AND TRANSITION.DETECTING=1
+        if !include_identifying_transitions {
+            sql.push_str(" AND TRANSITION.DETECTING=1");
+        }
+
+        let mut stmt2 = conn
+            .prepare(&sql)
+            .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+    
+        // We need &[&dyn ToSql] for rusqlite
+        let params: Vec<&dyn rusqlite::ToSql> =
+            precursor_ids.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
+    
+        let transition_ids: Vec<i32> = stmt2
+            .query_map(&*params, |row| row.get(0))
+            .map_err(OpenSwathSqliteError::from)?
+            .collect::<Result<_, _>>()
+            .map_err(OpenSwathSqliteError::from)?;
+    
+        // 4) Pre‐allocate the output vector
+        let mut native_ids = Vec::with_capacity(
+            precursor_ids.len() * max_number_of_isotopes + transition_ids.len(),
+        );
+    
+        // 5) Build your “_Precursor_i#” entries
+        if include_precursor {
+            for &pid in &precursor_ids {
+                for iso in 0..max_number_of_isotopes {
+                    native_ids.push(format!("{}_Precursor_i{}", pid, iso));
+                }
+            }
+        }
+    
+        // 6) Append transition IDs as strings
+        native_ids.extend(transition_ids.into_iter().map(|tid| tid.to_string()));
+    
+        Ok(native_ids)
+    }
+    
     /// Method to fetch precursor id and detecting transition id data from the OSW database
     ///
     /// Parameters
