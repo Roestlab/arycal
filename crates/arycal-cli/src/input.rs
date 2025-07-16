@@ -5,7 +5,7 @@ use std::fs::File;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
-use arycal_common::config::{XicConfig, FeaturesConfig, FiltersConfig, AlignmentConfig, XicFileType, FeaturesFileType};
+use arycal_common::config::{XicConfig, FeaturesConfig, FiltersConfig, AlignmentConfig, XicFileType, FeaturesFileType, VisualizationConfig};
 
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -15,6 +15,8 @@ pub struct Input {
     pub filters: FiltersConfig,
     pub alignment: AlignmentConfig,
     pub disable_progress_bar: bool,
+
+    pub visualization: Option<VisualizationConfig>, 
 }
 
 impl Input {
