@@ -2,7 +2,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://github.com/singjc/arycal/raw/master/assets/img/arycal_logo_400x419.png" alt="ARYCAL_Logo" width="500">
     <source media="(prefers-color-scheme: light)" srcset="https://github.com/singjc/arycal/raw/master/assets/img/arycal_logo_400x419.png" alt="ARYCAL_Logo" width="500">
-    <img alt="ARYCAL Logo" comment="Placeholder to transition between light color mode and dark color mode - this image is not directly used." src="https://github.com/singjc/arycal/raw/master/assets/img/arycal_logo_400x419.pngarycal_logo_400x419.png">
+    <img alt="ARYCAL Logo" comment="Placeholder to transition between light color mode and dark color mode - this image is not directly used." src="https://github.com/singjc/arycal/raw/master/assets/img/arycal_logo_400x419.png">
   </picture>
 </p>
 
