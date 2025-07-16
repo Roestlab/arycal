@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use arycal_common::chromatogram::AlignedRTPointPair;
 use rand::prelude::IndexedRandom;
 use anyhow::Error as AnyHowError;

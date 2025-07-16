@@ -4,7 +4,6 @@ use serde::{Serialize, Deserialize};
 use deepsize::DeepSizeOf;
 
 pub mod config;
-pub mod logging;
 pub mod error;
 pub mod chromatogram;
 

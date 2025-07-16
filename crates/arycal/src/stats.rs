@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicPtr, Ordering};
 use ndarray::{Array1, Array2, s};
 use rayon::prelude::*;
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 
 pub fn initialize_xcorr_matrix(intensities: &[Array1<f64>]) -> (Array2<f64>, Array2<f64>, Array2<f64>) {

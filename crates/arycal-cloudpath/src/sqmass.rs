@@ -1,4 +1,3 @@
-use anyhow::{anyhow, Result as AnyHowResult};
 use flate2::read::ZlibDecoder;
 use ordered_float::OrderedFloat;
 use r2d2::Pool;

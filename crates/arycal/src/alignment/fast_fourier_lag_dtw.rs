@@ -1,8 +1,6 @@
 use anyhow::Error as AnyHowError;
 use ndarray::Array1;
 use rand::prelude::IndexedRandom;
-use std::collections::HashMap;
-use std::f64;
 use rayon::prelude::*;
 use dtw_rs::{Algorithm, DynamicTimeWarping};
 

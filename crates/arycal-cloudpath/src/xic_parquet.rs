@@ -1,9 +1,5 @@
-use duckdb::{params, Connection, Result};
-use duckdb::types::ToSql;
-use duckdb::types::Value;
+use duckdb::{Connection, Result};
 use std::collections::HashMap;
-use std::path::Path;
-use std::sync::Arc;
 use rayon::prelude::*;
 
 use crate::osw::PrecursorIdData;
