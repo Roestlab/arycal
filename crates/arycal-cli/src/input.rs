@@ -1,9 +1,9 @@
 use anyhow::{Context, Result};
 use clap::ArgMatches;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{self, Read};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use arycal_common::config::{XicConfig, FeaturesConfig, FiltersConfig, AlignmentConfig, XicFileType, FeaturesFileType, VisualizationConfig};
 
@@ -13,8 +13,7 @@ pub struct Input {
     pub xic: XicConfig,
     pub features: FeaturesConfig,
     pub filters: FiltersConfig,
-    pub alignment: AlignmentConfig,
-    pub disable_progress_bar: bool,
+    pub alignment: AlignmentConfig
 
     pub visualization: Option<VisualizationConfig>, 
 }

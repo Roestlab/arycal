@@ -8,11 +8,8 @@ use mpi::traits::*;
 use anyhow::Result;
 use log::info;
 use rayon::prelude::*;
-use rayon::ThreadPoolBuilder;
 use std::collections::HashMap;
 use std::time::Instant;
-use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use sysinfo::System;
 use deepsize::DeepSizeOf;
 
@@ -23,9 +20,8 @@ use arycal_cloudpath::{
     sqmass::SqMassAccess,
     xic_parquet::DuckDBParquetChromatogramReader
 };
-use arycal_common::{logging::Progress, chromatogram::{Chromatogram, create_common_rt_space, AlignedChromatogram}, AlignedTransitionScores, error::ArycalError, PrecursorXics, AlignedTics, FullTraceAlignmentScores, PeakMapping, PrecursorAlignmentResult, PeakMappingScores};
-use arycal_common::config::XicFileType;
-use arycal_core::{alignment::{self, alignment::apply_post_alignment_to_trgrp, dynamic_time_warping::align_chromatograms, fast_fourier_lag::shift_chromatogram}, scoring::{compute_alignment_scores, compute_peak_mapping_scores, compute_peak_mapping_transitions_scores}};
+use arycal_common::{chromatogram::{create_common_rt_space, AlignedChromatogram}, AlignedTransitionScores, PrecursorXics, AlignedTics, PeakMapping, PrecursorAlignmentResult};
+use arycal_core::{alignment::alignment::apply_post_alignment_to_trgrp, scoring::{compute_alignment_scores, compute_peak_mapping_scores, compute_peak_mapping_transitions_scores}};
 use arycal_core::{
     alignment::alignment::map_peaks_across_runs,
     alignment::dynamic_time_warping::{star_align_tics, mst_align_tics, progressive_align_tics},
@@ -41,12 +37,11 @@ pub struct Runner {
     parameters: input::Input,
     feature_access: Vec<OswAccess>,
     xic_access: Vec<Box<dyn ChromatogramReader>>,
-    start: Instant,
-    progress_num: Option<Arc<Mutex<f32>>>, 
+    start: Instant
 }
 
 impl Runner {
-    pub fn new(parameters: Input, progress_num: Option<Arc<Mutex<f32>>>) -> anyhow::Result<Self> {
+    pub fn new(parameters: Input) -> anyhow::Result<Self> {
         let start = Instant::now();
 
         // TODO: Currently only supports a single OSW file
@@ -95,8 +90,7 @@ impl Runner {
             parameters,
             feature_access: vec![osw_access],
             xic_access: xic_accessors,
-            start,
-            progress_num: Some(progress_num.expect("Progress number is not set")),
+            start
         })
     }
 

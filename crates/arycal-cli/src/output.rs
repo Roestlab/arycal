@@ -10,7 +10,6 @@ use std::sync::Arc;
 
 use arycal_common::PeakMapping;
 use arycal_common::chromatogram::AlignedChromatogram;
-use arycal_core::alignment::alignment::ValueType;
 
 /// Writes the mapped peaks to a Parquet file.
 ///

@@ -1,13 +1,11 @@
-use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::f64;
 use arycal_common::chromatogram::AlignedRTPointPair;
-use arycal_common::config::{AlignmentConfig, SmoothingConfig};
-use rand::seq::IndexedRandom;
+use arycal_common::config::AlignmentConfig;
 use union_find::{QuickFindUf, UnionBySize, UnionFind};
 use rayon::prelude::*;
 
-use arycal_cloudpath::osw::{FeatureData, ValueEntryType};
+use arycal_cloudpath::osw::FeatureData;
 use arycal_cloudpath::sqmass::TransitionGroup;
 use arycal_common::{chromatogram::{Chromatogram, AlignedChromatogram, apply_common_rt_space_single}, PeakMapping};
 

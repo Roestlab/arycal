@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicPtr, Ordering};
 use ndarray::{Array1, Array2, s};
 use rayon::prelude::*;
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 
 pub fn initialize_xcorr_matrix(intensities: &[Array1<f64>]) -> (Array2<f64>, Array2<f64>, Array2<f64>) {
@@ -196,6 +196,11 @@ pub fn normalized_cross_correlation(intensities1: &Array1<f64>, intensities2: &A
 
 /// Optimized cross-correlation coelution score calculation
 pub fn calc_xcorr_coelution_score(intensities1: &Array1<f64>, intensities2: &Array1<f64>) -> f64 {
+    // Return 0 if either input is empty
+    if intensities1.is_empty() || intensities2.is_empty() {
+        return 0.0;
+    }
+
     // Direct calculation without matrix overhead
     let mean1 = intensities1.mean().unwrap_or(0.0);
     let mean2 = intensities2.mean().unwrap_or(0.0);
@@ -210,7 +215,13 @@ pub fn calc_xcorr_coelution_score(intensities1: &Array1<f64>, intensities2: &Arr
     );
     
     let (max_peak, _) = xcorr_array_get_max_peak_optimized(&xcorr);
-    max_peak  // For two vectors, mean+stddev simplifies to just the peak value
+    
+    // Check for NaN or infinite values and return 0.0 in those cases
+    if max_peak.is_nan() || max_peak.is_infinite() {
+        0.0
+    } else {
+        max_peak
+    }
 }
 
 /// Compute cross-correlation to many
@@ -230,6 +241,11 @@ pub fn calc_xcorr_to_many_score(
     intensities1: &Array1<f64>,
     intensities2: &[Array1<f64>],
 ) -> f64 {
+    // Return 0 if either input is empty
+    if intensities1.is_empty() || intensities2.is_empty() {
+        return 0.0;
+    }
+
     // Precompute stats for intensities1 (only once!)
     let mean1 = intensities1.mean().unwrap_or(0.0);
     let std1 = intensities1.std(0.0);
@@ -237,6 +253,11 @@ pub fn calc_xcorr_to_many_score(
     // Process intensities2 in parallel
     let (total_xcorr, count) = intensities2.par_iter()
         .map(|intensities2| {
+            // Skip empty arrays
+            if intensities2.is_empty() {
+                return 0.0;
+            }
+
             let mean2 = intensities2.mean().unwrap_or(0.0);
             let std2 = intensities2.std(0.0);
             
@@ -248,7 +269,13 @@ pub fn calc_xcorr_to_many_score(
             );
             
             let (_, max_peak) = xcorr_array_get_max_peak_optimized(&xcorr);
-            max_peak
+            
+            // Return 0 for NaN or infinite values
+            if max_peak.is_nan() || max_peak.is_infinite() {
+                0.0
+            } else {
+                max_peak
+            }
         })
         .fold(
             || (0.0, 0),
@@ -259,7 +286,18 @@ pub fn calc_xcorr_to_many_score(
             |(sum1, count1), (sum2, count2)| (sum1 + sum2, count1 + count2),
         );
 
-    total_xcorr / count as f64
+    // Avoid division by zero and return 0 if no valid scores were computed
+    if count == 0 {
+        0.0
+    } else {
+        let avg = total_xcorr / count as f64;
+        // Final check in case the average itself is NaN/inf
+        if avg.is_nan() || avg.is_infinite() {
+            0.0
+        } else {
+            avg
+        }
+    }
 }
 
 /// Compute cross-correlation shape score.
@@ -280,13 +318,18 @@ pub fn calc_xcorr_shape_score(
     intensities1: &Array1<f64>,
     intensities2: &Array1<f64>,
 ) -> f64 {
-    // Precompute stats (optimized)
+    // Early return for empty inputs
+    if intensities1.is_empty() || intensities2.is_empty() {
+        return 0.0;
+    }
+
+    // Precompute stats with fallbacks
     let mean1 = intensities1.mean().unwrap_or(0.0);
     let mean2 = intensities2.mean().unwrap_or(0.0);
     let std1 = intensities1.std(0.0);
     let std2 = intensities2.std(0.0);
 
-    // Compute full cross-correlation array
+    // Compute cross-correlation
     let xcorr = normalized_cross_correlation_optimized(
         intensities1,
         intensities2,
@@ -294,15 +337,21 @@ pub fn calc_xcorr_shape_score(
         mean2, std2,
     );
 
-    // Compute mean of all valid (non-NaN) cross-correlation values
+    // Compute mean of valid values with comprehensive checks
     let (sum, count) = xcorr.iter()
-        .filter(|&&v| !v.is_nan())
+        .filter(|&&v| !v.is_nan() && !v.is_infinite())  // Filter both NaN and infinite
         .fold((0.0, 0), |(sum, count), &v| (sum + v, count + 1));
 
+    // Final result with multiple safeguards
     if count == 0 {
-        0.0 // Avoid division by zero
+        0.0
     } else {
-        sum / count as f64
+        let result = sum / count as f64;
+        if result.is_nan() || result.is_infinite() {
+            0.0  // Final sanity check
+        } else {
+            result
+        }
     }
 }
 
@@ -321,16 +370,26 @@ pub fn calc_xcorr_shape_score(
 // Compute cross-correlation shape score to many
 pub fn calc_xcorr_shape_to_many_score(
     intensities1: &Array1<f64>,
-    intensities2: &[Array1<f64>],  // Use slice instead of Vec for flexibility
+    intensities2: &[Array1<f64>],
 ) -> f64 {
-    // Precompute stats for the reference array (intensities1)
+    // Early return for empty inputs
+    if intensities1.is_empty() || intensities2.is_empty() {
+        return 0.0;
+    }
+
+    // Precompute stats for the reference array with fallbacks
     let mean1 = intensities1.mean().unwrap_or(0.0);
     let std1 = intensities1.std(0.0);
 
     // Process all target arrays in parallel
     let (total_xcorr, count) = intensities2.par_iter()
         .map(|intensities2| {
-            // Precompute stats for the current target array
+            // Skip empty arrays
+            if intensities2.is_empty() {
+                return (0.0, 0);
+            }
+
+            // Precompute stats with fallbacks
             let mean2 = intensities2.mean().unwrap_or(0.0);
             let std2 = intensities2.std(0.0);
 
@@ -342,21 +401,39 @@ pub fn calc_xcorr_shape_to_many_score(
                 mean2, std2
             );
 
-            // Calculate mean of valid correlation values
+            // Calculate mean of valid correlation values (excluding NaN and infinite)
             let (sum, count) = xcorr.iter()
-                .filter(|&&v| !v.is_nan())
+                .filter(|&&v| v.is_finite())  // Filters out both NaN and infinite
                 .fold((0.0, 0), |(sum, count), &v| (sum + v, count + 1));
 
-            // Return partial sum and count
-            if count == 0 { (0.0, 0) } else { (sum, count) }
+            // Return partial results with validation
+            if count == 0 {
+                (0.0, 0)
+            } else {
+                let partial_avg = sum / count as f64;
+                if partial_avg.is_finite() {
+                    (partial_avg * count as f64, count)  // Return as sum to avoid precision loss
+                } else {
+                    (0.0, 0)
+                }
+            }
         })
         .reduce(
             || (0.0, 0),  // Identity element for reduction
             |(sum1, count1), (sum2, count2)| (sum1 + sum2, count1 + count2)
         );
 
-    // Compute final average
-    if count == 0 { 0.0 } else { total_xcorr / count as f64 }
+    // Compute final average with multiple safeguards
+    if count == 0 {
+        0.0
+    } else {
+        let result = total_xcorr / count as f64;
+        if result.is_finite() {
+            result
+        } else {
+            0.0
+        }
+    }
 }
 
 
@@ -492,9 +569,30 @@ pub fn calc_mi_score(
     intensities1: &Array1<f64>,
     intensities2: &Array1<f64>,
 ) -> f64 {
-    let (rank1, max_rank1) = compute_rank_and_max(intensities1);
-    let (rank2, max_rank2) = compute_rank_and_max(intensities2);
-    ranked_mutual_information_optimized(&rank1, &rank2, max_rank1, max_rank2)
+    // Early return for empty inputs
+    if intensities1.is_empty() || intensities2.is_empty() {
+        return 0.0;
+    }
+
+    // Compute ranks with validation
+    let (rank1, max_rank1) = match compute_rank_and_max(intensities1) {
+        (r, m) if r.is_empty() => return 0.0,
+        result => result,
+    };
+    let (rank2, max_rank2) = match compute_rank_and_max(intensities2) {
+        (r, m) if r.is_empty() => return 0.0,
+        result => result,
+    };
+
+    // Calculate mutual information with validation
+    let mi = ranked_mutual_information_optimized(&rank1, &rank2, max_rank1, max_rank2);
+    
+    // Validate result
+    if mi.is_nan() || mi.is_infinite() || mi < 0.0 {
+        0.0
+    } else {
+        mi
+    }
 }
 
 /// Optimized mutual information to many
@@ -502,14 +600,40 @@ pub fn calc_mi_to_many_score(
     intensities1: &Array1<f64>,
     intensities2: &[Array1<f64>],
 ) -> f64 {
-    // Precompute reference ranks once
-    let (rank1, max_rank1) = compute_rank_and_max(intensities1);
+    // Early return for empty inputs
+    if intensities1.is_empty() || intensities2.is_empty() {
+        return 0.0;
+    }
 
-    // Process in parallel
+    // Precompute reference ranks with validation
+    let (rank1, max_rank1) = match compute_rank_and_max(intensities1) {
+        (r, m) if r.is_empty() => return 0.0,
+        result => result,
+    };
+
+    // Process in parallel with full validation
     let (total_mi, count) = intensities2.par_iter()
-        .map(|intensity| {
-            let (rank2, max_rank2) = compute_rank_and_max(intensity);
-            ranked_mutual_information_optimized(&rank1, &rank2, max_rank1, max_rank2)
+        .filter_map(|intensity| {
+            // Skip empty arrays
+            if intensity.is_empty() {
+                return None;
+            }
+
+            // Compute ranks with validation
+            let (rank2, max_rank2) = match compute_rank_and_max(intensity) {
+                (r, m) if r.is_empty() => return None,
+                result => result,
+            };
+
+            // Calculate MI with validation
+            let mi = ranked_mutual_information_optimized(&rank1, &rank2, max_rank1, max_rank2);
+            
+            // Only include valid MI scores
+            if mi.is_finite() && mi >= 0.0 {
+                Some(mi)
+            } else {
+                None
+            }
         })
         .fold(
             || (0.0, 0),
@@ -520,7 +644,17 @@ pub fn calc_mi_to_many_score(
             |(sum1, count1), (sum2, count2)| (sum1 + sum2, count1 + count2),
         );
 
-    if count == 0 { 0.0 } else { total_mi / count as f64 }
+    // Final validation
+    if count == 0 {
+        0.0
+    } else {
+        let avg = total_mi / count as f64;
+        if avg.is_finite() && avg >= 0.0 {
+            avg
+        } else {
+            0.0
+        }
+    }
 }
 
 /// Helper function to compute rank and max rank together

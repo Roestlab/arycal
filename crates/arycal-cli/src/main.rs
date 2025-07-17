@@ -1,6 +1,5 @@
 use clap::{Arg, Command, ValueHint};
 use anyhow::Result;
-use std::sync::{Arc, Mutex};
 use arycal_cli::input::Input; 
 use arycal_cli::Runner;
 #[cfg(not(target_os = "windows"))]
@@ -71,7 +70,7 @@ fn main() -> Result<()> {
     let input = Input::from_arguments(&matches)?;
 
     // Initialize the runner
-    let mut runner = Runner::new(input, Some(Arc::new(Mutex::new(0.0))))?;
+    let mut runner = Runner::new(input)?;
 
     // Run the main logic
     runner.run()?;

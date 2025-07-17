@@ -1,8 +1,8 @@
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
-use rusqlite::{params, Connection, Error as RusqliteError, Result};
+use rusqlite::{params, Error as RusqliteError, Result};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, time::Duration};
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::BTreeMap;
 use std::error::Error;

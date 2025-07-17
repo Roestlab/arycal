@@ -2,7 +2,6 @@ use anyhow::Error as AnyHowError;
 use arycal_common::chromatogram::AlignedRTPointPair;
 use ndarray::Array1;
 use rand::prelude::IndexedRandom;
-use std::collections::HashMap;
 use std::collections::HashSet;
 use std::f64;
 use rayon::prelude::*;
