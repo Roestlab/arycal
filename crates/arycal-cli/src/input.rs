@@ -13,7 +13,7 @@ pub struct Input {
     pub xic: XicConfig,
     pub features: FeaturesConfig,
     pub filters: FiltersConfig,
-    pub alignment: AlignmentConfig
+    pub alignment: AlignmentConfig,
 
     pub visualization: Option<VisualizationConfig>, 
 }
