@@ -125,7 +125,7 @@ Remove the comments before running the configuration file.
     },
     # The tolearance for mapping query peaks to the reference run using the alignment result
     "rt_mapping_tolerance": 20.0,
-    # The method for generating decoy aligned peaks. (Currently supports shuffle, random_region)
+    # The method for generating decoy aligned peaks. (Currently supports shuffle, random_regions)
     "decoy_peak_mapping_method": "shuffle",
     # Size of the window to use for the decoy peak mapping. Only used when the method is random_region.
     "decoy_window_size": 30,
@@ -133,9 +133,7 @@ Remove the comments before running the configuration file.
     "compute_scores": true,
     # Optionally write out the scores to a separate file (sqlite), otherwise the scores are written to the feature input file
     "scores_output_file": null
-  },
-  # Disable the tqdm progress bar
-  "disable_progress_bar": false,
+  }
 }
 ```
 
