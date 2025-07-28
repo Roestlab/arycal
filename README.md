@@ -1,8 +1,8 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/singjc/arycal/raw/master/assets/img/arycal_logo_400x419.png" alt="ARYCAL_Logo" width="500">
-    <source media="(prefers-color-scheme: light)" srcset="https://github.com/singjc/arycal/raw/master/assets/img/arycal_logo_400x419.png" alt="ARYCAL_Logo" width="500">
-    <img alt="ARYCAL Logo" comment="Placeholder to transition between light color mode and dark color mode - this image is not directly used." src="https://github.com/singjc/arycal/raw/master/assets/img/arycal_logo_400x419.png">
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/singjc/arycal/raw/master/assets/img/arycal_logo_new_transparent.png" alt="ARYCAL_Logo" width="500">
+    <source media="(prefers-color-scheme: light)" srcset="https://github.com/singjc/arycal/raw/master/assets/img/arycal_logo_new_transparent.png" alt="ARYCAL_Logo" width="500">
+    <img alt="ARYCAL Logo" comment="Placeholder to transition between light color mode and dark color mode - this image is not directly used." src="https://github.com/singjc/arycal/raw/master/assets/img/arycal_logo_new_transparent.png">
   </picture>
 </p>
 
@@ -17,14 +17,27 @@
 **ARYCAL** is a Rust-based tool for aligning extracted ion chromatograms (EICs) across multiple runs from targeted DIA mass spectrometry data. ARYCAL is based on  similar principles as [DIAlignR](https://github.com/shubham1637/DIAlignR), using dynamic programming to align precursor chromatographic traces across multiple runs. In addition, ARYCAL supports the use of fast Fourier transform (FFT) for alignment, which can reduce the time required for alignment.
 
 ## Features
-- Fast and efficient chromatogram alignment
-  - Supports dynamic time warping (DTW), fast Fourier transform (FFT), and a combination of FFT refined by DTW alignment methods
-- Scoring quality of alignment
-  - Full trace alignment is scored based on cross-correlation coelution score, peak shape similarity and mutual information.
-  - Individual peak mapping across runs is scored using the same metrics.
-  - A set of decoy aligned peaks is generated (random shuffling of query peak or random region selection) to estimate the quality of peak alignment.
-  - If using the IPF OpenSWATH workflow, alignment (based on detecting transitions) and scoring of individual transitions peak mappings is also supported.
-- Currently only supports output from OpenSWATH (OSW feature files and sqMass XIC files)
+
+- **Standalone command-line** (`arycal`) executable for:
+  - Fast and efficient chromatogram alignment
+    - Supports dynamic time warping (DTW), fast Fourier transform (FFT), and a combination of FFT refined by DTW alignment methods
+  - Scoring quality of alignment
+    - Full trace alignment is scored based on cross-correlation coelution score, peak shape similarity and mutual information.
+    - Individual peak mapping across runs is scored using the same metrics.
+    - A set of decoy aligned peaks is generated (random shuffling of query peak or random region selection) to estimate the quality of peak alignment.
+    - If using the IPF OpenSWATH workflow, alignment (based on detecting transitions) and scoring of individual transitions peak mappings is also supported.
+  - Currently only supports output from OpenSWATH (OSW feature files and sqMass XIC files)
+- **Native desktop GUI** (`arycal-gui`) providing an end-to-end, tabbed workflow:
+  1. **PQP Generation** — build peptide query parameter assay libraries  
+  2. **OpenSWATH Workflow** — configure & launch OpenSWATH feature extraction and scoring
+  3. **ARYCAL Alignment** — run across-run dynamic alignment  
+  4. **Statistical Validation** — semi-supervised scoring with PyProphet for FDR estimation  
+  5. **Visualization** — interactive tabs for  
+     - Extracted ion chromatograms (EIC)  
+     - Peak boundary overlays  
+     - Linked‐axis and cursor across multiple runs  
+
+![ARYCAL GUI visualization tab](./assets/img/gui/visualization_tab.png)
 
 ## Installation
 
@@ -34,6 +47,8 @@ Precompiled binaries are available for Linux, MacOS, and Windows. You can downlo
 
 ### Build from Source
 
+#### 1) Command-line Tool
+
 To build ARYCAL from source, you will need to install the Rust toolchain. You can install Rust using `rustup`, the official Rust installer.
 
 ```bash
@@ -42,7 +57,7 @@ git clone https://github.com/singjc/arycal.git
 cd arycal
 
 # Build the command line tool using Cargo
-cargo build --release --bin arycal=
+cargo build --release --bin arycal
 ```
 
 If you're working on an HPC, you can add the `--features mpi` flag to enable MPI support for distributed computation across multiple nodes.
@@ -51,9 +66,17 @@ If you're working on an HPC, you can add the `--features mpi` flag to enable MPI
 cargo build --features mpi --release --bin arycal
 ```
 
+#### 2) GUI Application
+
+To build the GUI application, run the following command in the root directory of the repository:
+
+```bash
+cargo build --release --bin arycal-gui
+```
+
 ### Docker
 
-ARYCAL is also available via [docker images](https://github.com/users/singjc/packages/container/package/arycal):
+ARYCAL (CLI) is also available via [docker images](https://github.com/users/singjc/packages/container/package/arycal):
 
 Pull the latest version:
 
