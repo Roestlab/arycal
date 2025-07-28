@@ -67,6 +67,10 @@ jobs:
           toolchain: 1.85.0
           override: true
 
+      - name: Add musl target
+        if: contains(matrix.target, 'musl')
+        run: rustup target add x86_64-unknown-linux-musl
+
       - name: Install musl-tools (for Linux musl builds)
         if: contains(matrix.target, 'musl')
         run: sudo apt-get install -y musl-tools
