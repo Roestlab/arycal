@@ -11,6 +11,11 @@ env:
 
 jobs:
   build:
+    # Add concurrency to cancel previous runs
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+      
     runs-on: ubuntu-latest
 
     steps:
