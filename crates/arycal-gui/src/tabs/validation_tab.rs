@@ -31,6 +31,7 @@ pub fn build_merge_args(cfg: &PyProphetConfig) -> Vec<Vec<String>> {
 
     // pyprophet merge --out <output_path> <file1> <file2> …
     let mut args = Vec::new();
+    args.push("--no-log-colorize".to_string());
     args.push("merge".to_string());
     args.push("osw".to_string());
     args.push("--out".to_string());
@@ -73,6 +74,7 @@ pub fn build_score_level_args(
     for input in file_paths {
         let mut args = Vec::new();
         // subcommand and level
+        args.push("--no-log-colorize".to_string());
         args.push("score".to_string());
         args.push("--level".to_string());
         args.push(level.to_string());
@@ -126,6 +128,7 @@ fn push_infer_peptide_stages(pipeline: &mut Vec<Stage>, cfg: &PyProphetConfig) {
                 tool: ValidationTool::InferPeptideGlobal,
                 bin: bin.clone(),
                 arg_lists: vec![vec![
+                    "--no-log-colorize".into(),
                     "infer".into(), "peptide".into(),
                     "--in".into(), input.clone().to_string_lossy().into_owned(),
                     "--context".into(), "global".into(),
@@ -138,6 +141,7 @@ fn push_infer_peptide_stages(pipeline: &mut Vec<Stage>, cfg: &PyProphetConfig) {
                 tool: ValidationTool::InferPeptideExperimentWide,
                 bin: bin.clone(),
                 arg_lists: vec![vec![
+                    "--no-log-colorize".into(),
                     "infer".into(), "peptide".into(),
                     "--in".into(), input.clone().to_string_lossy().into_owned(),
                     "--context".into(), "experiment-wide".into(),
@@ -150,6 +154,7 @@ fn push_infer_peptide_stages(pipeline: &mut Vec<Stage>, cfg: &PyProphetConfig) {
                 tool: ValidationTool::InferPeptideRunSpecific,
                 bin: bin.clone(),
                 arg_lists: vec![vec![
+                    "--no-log-colorize".into(),
                     "infer".into(), "peptide".into(),
                     "--in".into(), input.clone().to_string_lossy().into_owned(),
                     "--context".into(), "run-specific".into(),
@@ -288,6 +293,7 @@ pub fn build_infer_peptidoform_args(cfg: &PyProphetConfig) -> Vec<Vec<String>> {
     for input in file_paths {
         let mut args = Vec::new();
         // subcommand + level
+        args.push("--no-log-colorize".to_string());
         args.push("infer".into());
         args.push("peptidoform".into());
 
@@ -360,6 +366,7 @@ pub fn build_export_tsv_args(cfg: &PyProphetConfig) -> Vec<Vec<String>> {
 
     for input in file_paths {
         let mut args = Vec::new();
+        args.push("--no-log-colorize".to_string());
         args.push("export".into());
         args.push("tsv".into());
 
@@ -441,6 +448,7 @@ pub fn build_export_matrix_level_args(
 
         // assemble the args
         let mut args = Vec::new();
+        args.push("--no-log-colorize".to_string());
         args.push("export".into());
         args.push("matrix".into());
         args.push("--in".into());
@@ -507,6 +515,7 @@ pub fn build_export_parquet_args(cfg: &PyProphetConfig) -> Vec<Vec<String>> {
 
     for input in file_paths {
         let mut args = Vec::new();
+        args.push("--no-log-colorize".to_string());
         args.push("export".into());
         args.push("parquet".into());
 
