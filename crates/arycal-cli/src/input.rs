@@ -19,6 +19,8 @@ pub struct Input {
     /// GUI only releated fields
     pub n_concurrent_processes: usize,
     pub python_path: Option<String>, // Path to Python executable
+    pub last_python_dir: Option<String>,
+
 
     pub threads: usize,
     pub log_level: String,
@@ -41,6 +43,7 @@ impl Default for Input {
             // your GUI defaults:
             n_concurrent_processes: 1,
             python_path: None,
+            last_python_dir: None,
             threads: std::thread::available_parallelism().unwrap().get() - 1,        
             log_level: "info".to_string(),
 

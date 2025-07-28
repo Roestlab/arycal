@@ -19,30 +19,39 @@ pub fn draw_system_settings(
     ui: &mut Ui,
     config: &mut Input,
 ) {
-    // theme buttons
+    // Theme buttons
+
+    use crate::utils::update_python_path;
     egui::widgets::global_theme_preference_buttons(ui);
 
-    // Add numeric input for the number of concurrent processes/jobs 
+    // Concurrent processes input
     ui.horizontal(|ui| {
         ui.label("Concurrent Processes:");
-        // Use a slider or numeric input to set the number of processes
-        // Here we use a simple numeric input for demonstration
         let cap_num_processes = std::thread::available_parallelism().unwrap().get();
-
-        ui.add(egui::DragValue::new(&mut config.n_concurrent_processes).speed(1.0).range(1..=cap_num_processes)).on_hover_text("Set the number of concurrent processes to run. This allows you to run multiple jobs in parallel. Adjust based on your system's capabilities. Prioritize threads for a task that requires more CPU resources, rather than spawning multiple processes.");
+        ui.add(
+            egui::DragValue::new(&mut config.n_concurrent_processes)
+                .speed(1.0)
+                .range(1..=cap_num_processes),
+        )
+        .on_hover_text("Set the number of concurrent processes...");
     });
 
     ui.add_space(2.0);
 
+    // Python executable selector
     ui.horizontal(|ui| {
         ui.label("Python Executable:");
-        let mut py_display = config.python_path.clone().unwrap_or_else(|| "System Default".to_string());
+        let mut py_display = config
+            .python_path
+            .clone()
+            .unwrap_or_else(|| "System Default".to_string());
         if ui.text_edit_singleline(&mut py_display).changed() {
-            if py_display.trim().is_empty() {
-                config.python_path = None;
+            config.python_path = if py_display.trim().is_empty() {
+                None
             } else {
-                config.python_path = Some(py_display.trim().to_string());
-            }
+                Some(py_display.trim().to_string())
+            };
+            update_python_path(&config.python_path, &mut config.last_python_dir);
         }
         if ui.button("…").clicked() {
             if let Some(path) = rfd::FileDialog::new()
@@ -50,65 +59,52 @@ pub fn draw_system_settings(
                 .pick_file()
             {
                 config.python_path = Some(path.display().to_string());
+                update_python_path(&config.python_path, &mut config.last_python_dir);
             }
         }
     });
 
-    if let Some(python_path) = &config.python_path {
-        if let Some(parent) = std::path::Path::new(python_path).parent() {
-            let mut current_path = std::env::var_os("PATH").unwrap_or_default();
-            let mut new_path = std::ffi::OsString::new();
-            new_path.push(parent.as_os_str());
-            new_path.push(std::path::MAIN_SEPARATOR.to_string());
-            new_path.push(current_path);
-            std::env::set_var("PATH", new_path);
-            println!("Appended {:?} to PATH", parent);
-        }
-    }
-    
-    
-
     ui.add_space(4.0);
 
-    // only refresh once a second:
+    // Refresh system info
     if last_refresh.elapsed() >= Duration::from_secs(1) {
         system.refresh_cpu_all();
         system.refresh_memory();
         *last_refresh = Instant::now();
     }
-    // ask egui to repaint again in 1s
     ui.ctx().request_repaint_after(Duration::from_secs(1));
 
+    // System info panel
     egui::CollapsingHeader::new("System Info")
-    .default_open(true)
-    .show(ui, |ui| {
-        // OS information
-        ui.horizontal(|ui| {
-            ui.label("OS:");
-            ui.label(format!("{} {}", System::name().unwrap_or_default(), System::os_version().unwrap_or_default()));
-        });
+        .default_open(true)
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("OS:");
+                ui.label(format!(
+                    "{} {}",
+                    System::name().unwrap_or_default(),
+                    System::os_version().unwrap_or_default()
+                ));
+            });
 
-        let cpu = system.global_cpu_usage();
-        ui.horizontal(|ui| {
-            ui.label("CPU:");
-            ui.add(
-                ProgressBar::new(cpu as f32 / 100.0)
-                    .text(format!("{:.1}%", cpu)),
-            );
-        });
+            let cpu = system.global_cpu_usage();
+            ui.horizontal(|ui| {
+                ui.label("CPU:");
+                ui.add(ProgressBar::new(cpu as f32 / 100.0).text(format!("{:.1}%", cpu)));
+            });
 
-        let total = system.total_memory() as f64 / 1024.0 / 1024.0 / 1024.0;
-        let used  = system.used_memory()  as f64 / 1024.0 / 1024.0 / 1024.0;
-        ui.horizontal(|ui| {
-            ui.label("Memory:");
-            ui.add(
-                ProgressBar::new((used/total) as f32)
-                    .text(format!("{:.1} / {:.1} GB", used, total)),
-            );
+            let total = system.total_memory() as f64 / 1024.0 / 1024.0 / 1024.0;
+            let used = system.used_memory() as f64 / 1024.0 / 1024.0 / 1024.0;
+            ui.horizontal(|ui| {
+                ui.label("Memory:");
+                ui.add(
+                    ProgressBar::new((used / total) as f32)
+                        .text(format!("{:.1} / {:.1} GB", used, total)),
+                );
+            });
         });
-    });   
-
 }
+
 
 
 /// Draw the system settings panel.

@@ -7,6 +7,7 @@ use std::{
     process::Command,
 };
 
+use arycal_cli::input::Input;
 use flate2::read::GzDecoder;
 use reqwest::blocking::Client;
 use serde::Deserialize;
@@ -148,6 +149,44 @@ pub fn get_install_dir() -> Result<PathBuf, Box<dyn Error>> {
     fs::create_dir_all(&install_dir)?;
     Ok(install_dir)
 }
+
+pub fn update_python_path(
+    python_path: &Option<String>,
+    last_python_dir: &mut Option<String>,
+) {
+    // Get new Python directory (parent of executable)
+    let new_dir = python_path
+        .as_ref()
+        .and_then(|p| std::path::Path::new(p).parent().map(|p| p.to_string_lossy().to_string()));
+
+    // Read current PATH and split into components
+    let current_path = std::env::var("PATH").unwrap_or_default();
+    let mut filtered: Vec<&str> = current_path.split(':').collect();
+
+    // Remove the old injected dir if it exists
+    if let Some(old_dir) = last_python_dir {
+        filtered.retain(|p| *p != old_dir);
+    }
+
+    // Add the new dir if not already present
+    if let Some(ref dir_str) = new_dir {
+        if !filtered.iter().any(|p| *p == dir_str) {
+            filtered.insert(0, dir_str);
+            log::info!("Prepended {} to PATH", dir_str);
+        } else {
+            log::info!("Skipped adding {} to PATH (already exists)", dir_str);
+        }
+        *last_python_dir = Some(dir_str.clone());
+    } else {
+        *last_python_dir = None;
+    }
+
+    // Write updated PATH
+    let new_path = filtered.join(":");
+    std::env::set_var("PATH", &new_path);
+}
+
+
 
 #[cfg(test)]
 mod tests {
