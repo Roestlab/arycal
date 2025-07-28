@@ -10,19 +10,17 @@ env:
   IMAGE_NAME: singjc/arycal
 
 jobs:
-
   build:
-
     runs-on: ubuntu-latest
 
     steps:
     - name: Checkout the repository
       uses: actions/checkout@v4
 
-    - name: Get Cargo toolchain
+    - name: Get Cargo toolchain (pinned)
       uses: actions-rs/toolchain@v1
       with:
-        toolchain: stable
+        toolchain: 1.85.0   # <-- Pin to pre-1.81 to avoid anymap UB issue
         target: x86_64-unknown-linux-gnu
         override: true
     
