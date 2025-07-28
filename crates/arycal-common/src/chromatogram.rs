@@ -8,7 +8,7 @@ use deepsize::DeepSizeOf;
 
 
 
-/// Represents a chromatogram with its associated data.
+/// Represents a single trace chromatogram with its associated data.
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, DeepSizeOf)]
 pub struct Chromatogram {
     /// Unique identifier for the chromatogram.
@@ -48,6 +48,12 @@ impl Chromatogram {
         let smoothed_intensities = self
             .calculate_smoothed_intensities(window_length, poly_order)
             .map_err(|e| anyhow!(e))?;
+
+        // Set any negative intensities to zero
+        let smoothed_intensities: Vec<f64> = smoothed_intensities
+            .into_iter()
+            .map(|intensity| intensity.max(0.0))
+            .collect();
 
         let mut new_metadata = self.metadata.clone();
         new_metadata.insert("smoothing_method".to_string(), "Savitzky-Golay".to_string());

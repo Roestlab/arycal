@@ -6,3 +6,7 @@
 *.ipynb
 *.log
 *.parquet
+heaptrack*
+*.data/
+/crates/arycal-viz
+/tests/

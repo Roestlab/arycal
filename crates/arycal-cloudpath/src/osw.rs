@@ -4,6 +4,7 @@ use rusqlite::{params, Error as RusqliteError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 use std::path::Path;
@@ -110,6 +111,43 @@ impl<T: Default> ValueEntryType<T> {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrecursorPeakBoundaries {
+    pub run_filename: String,
+    pub alignment_group_id: Option<i64>,
+    pub alignment_id: Option<i64>,
+    pub feature_id: i64,
+    pub left_width: f64,
+    pub right_width: f64,
+    pub precursor_id: i64,
+    pub feature_type: String, 
+    pub peakgroup_rank: i32,
+    pub peakgroup_pep: Option<f64>,
+    pub peakgroup_qvalue: Option<f64>,
+    pub alignment_pep: Option<f64>,
+    pub alignment_qvalue: Option<f64>,
+    pub sorted_feature_id: i64
+}
+
+
+/// Extracts the basename without any extensions.
+fn extract_basename(filename: &str) -> String {
+    // Use Path to get the file stem and remove all extensions
+    let path = Path::new(filename);
+    let mut stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or_default()
+        .to_string();
+
+    // Remove any additional extensions
+    while let Some(pos) = stem.rfind('.') {
+        stem.truncate(pos); // Remove the last extension
+    }
+
+    stem
+}
+
 /// Struct to store feature data for a precursor in a single run i.e. identified peaks, and peak boundaries.
 #[derive(Debug, Clone, Serialize, Deserialize, DeepSizeOf )]
 pub struct FeatureData {
@@ -143,7 +181,7 @@ impl FeatureData {
         qvalue: Option<ValueEntryType<f64>>,
         normalized_summed_intensity: Option<ValueEntryType<f64>>,
     ) -> Self {
-        let basename = Self::extract_basename(&filename);
+        let basename = crate::osw::extract_basename(&filename);
 
         FeatureData {
             filename,
@@ -161,23 +199,6 @@ impl FeatureData {
         }
     }
 
-    /// Extracts the basename without any extensions.
-    fn extract_basename(filename: &str) -> String {
-        // Use Path to get the file stem and remove all extensions
-        let path = Path::new(filename);
-        let mut stem = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or_default()
-            .to_string();
-
-        // Remove any additional extensions
-        while let Some(pos) = stem.rfind('.') {
-            stem.truncate(pos); // Remove the last extension
-        }
-
-        stem
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, DeepSizeOf )]
@@ -402,6 +423,459 @@ impl OswAccess {
             .collect()
     }
 
+    /// Get PeakGroup boundary features and scores if present
+    pub fn get_precursor_peak_boundaries(
+        &self,
+        modified_sequence: &str,
+        precursor_charge: i32,
+    ) -> Result<Vec<PrecursorPeakBoundaries>, OpenSwathSqliteError> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+    
+        // Check for optional tables
+        let has_fma: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='FEATURE_MS2_ALIGNMENT'",
+            [],
+            |row| row.get(0),
+        ).unwrap_or(false);
+        let has_score_ms2: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='SCORE_MS2'",
+            [],
+            |row| row.get(0),
+        ).unwrap_or(false);
+        let has_score_alignment: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='SCORE_ALIGNMENT'",
+            [],
+            |row| row.get(0),
+        ).unwrap_or(false);
+    
+        let sql: String;
+    
+        if has_fma {
+            // Add optional SCORE_ALIGNMENT subquery
+            let mut score_alignment_sub = String::new();
+            if has_score_alignment {
+                score_alignment_sub.push_str(
+                    r#"
+                    LEFT JOIN (
+                        SELECT 
+                            FEATURE_ID,
+                            MIN(PEP) AS pep,
+                            QVALUE
+                        FROM SCORE_ALIGNMENT
+                        GROUP BY FEATURE_ID
+                    ) AS sa
+                    ON merged.FEATURE_ID = sa.FEATURE_ID
+                    "#
+                );
+            }
+    
+            // Add optional SCORE_MS2 join
+            let mut score_ms2_join = String::new();
+            if has_score_ms2 {
+                score_ms2_join.push_str(
+                    r#"
+                    LEFT JOIN SCORE_MS2 AS sms2
+                        ON feat.ID = sms2.FEATURE_ID
+                    "#
+                );
+            }
+    
+            sql = format!(r#"
+                SELECT 
+                    run.FILENAME,
+                    DENSE_RANK() OVER (ORDER BY merged.PRECURSOR_ID, merged.ALIGNMENT_ID) AS ALIGNMENT_GROUP_ID,
+                    merged.ALIGNMENT_ID,
+                    merged.FEATURE_ID,
+                    feat.LEFT_WIDTH,
+                    feat.RIGHT_WIDTH,
+                    merged.PRECURSOR_ID,
+                    merged.FEATURE_TYPE,
+                    {peakgroup_rank}
+                    {peakgroup_pep_q}
+                    {alignment_pep_q}
+                FROM (
+                    SELECT DISTINCT
+                        fma.ALIGNMENT_ID,
+                        fma.REFERENCE_FEATURE_ID AS FEATURE_ID,
+                        fma.PRECURSOR_ID,
+                        'REFERENCE' AS FEATURE_TYPE
+                    FROM FEATURE_MS2_ALIGNMENT AS fma
+                    WHERE fma.LABEL = 1
+                      AND fma.REFERENCE_FEATURE_ID != fma.ALIGNED_FEATURE_ID
+    
+                    UNION
+    
+                    SELECT DISTINCT
+                        fma.ALIGNMENT_ID,
+                        fma.ALIGNED_FEATURE_ID AS FEATURE_ID,
+                        fma.PRECURSOR_ID,
+                        'QUERY' AS FEATURE_TYPE
+                    FROM FEATURE_MS2_ALIGNMENT AS fma
+                    WHERE fma.LABEL = 1
+                      AND fma.REFERENCE_FEATURE_ID != fma.ALIGNED_FEATURE_ID
+                ) AS merged
+                {score_alignment}
+                LEFT JOIN FEATURE AS feat
+                    ON merged.FEATURE_ID = feat.ID
+                LEFT JOIN RUN AS run
+                    ON feat.RUN_ID = run.ID
+                {score_ms2}
+                JOIN PRECURSOR_PEPTIDE_MAPPING ON PRECURSOR_PEPTIDE_MAPPING.PRECURSOR_ID = merged.PRECURSOR_ID
+                JOIN PRECURSOR ON PRECURSOR.ID = merged.PRECURSOR_ID
+                JOIN PEPTIDE ON PEPTIDE.ID = PRECURSOR_PEPTIDE_MAPPING.PEPTIDE_ID
+                WHERE PEPTIDE.MODIFIED_SEQUENCE = ?1
+                  AND PRECURSOR.CHARGE = ?2
+                ORDER BY 
+                    ALIGNMENT_GROUP_ID,
+                    CASE merged.FEATURE_TYPE 
+                        WHEN 'REFERENCE' THEN 0 
+                        WHEN 'QUERY' THEN 1 
+                    END
+            "#,
+            peakgroup_rank = if has_score_ms2 { "sms2.RANK AS PEAKGROUP_RANK," } else { "1 AS PEAKGROUP_RANK," },
+            peakgroup_pep_q = if has_score_ms2 { "sms2.PEP AS PEAKGROUP_PEP, sms2.QVALUE AS PEAKGROUP_QVALUE," } else { "NULL AS PEAKGROUP_PEP, NULL AS PEAKGROUP_QVALUE," },
+            alignment_pep_q = if has_score_alignment { "sa.PEP AS ALIGNMENT_PEP, sa.QVALUE AS ALIGNMENT_QVALUE" } else { "NULL AS ALIGNMENT_PEP, NULL AS ALIGNMENT_QVALUE" },
+            score_alignment = score_alignment_sub,
+            score_ms2 = score_ms2_join);
+        } else {
+            // Fallback when FEATURE_MS2_ALIGNMENT doesn't exist
+            sql = r#"
+                SELECT
+                    RUN.FILENAME,
+                    NULL AS ALIGNMENT_GROUP_ID,
+                    NULL AS ALIGNMENT_ID,
+                    FEATURE.ID AS FEATURE_ID,
+                    FEATURE.LEFT_WIDTH,
+                    FEATURE.RIGHT_WIDTH,
+                    FEATURE.PRECURSOR_ID,
+                    'UNKNOWN' AS FEATURE_TYPE,
+                    1 AS PEAKGROUP_RANK,
+                    NULL AS PEAKGROUP_PEP,
+                    NULL AS PEAKGROUP_QVALUE,
+                    NULL AS ALIGNMENT_PEP,
+                    NULL AS ALIGNMENT_QVALUE
+                FROM FEATURE
+                JOIN PRECURSOR_PEPTIDE_MAPPING ON PRECURSOR_PEPTIDE_MAPPING.PRECURSOR_ID = FEATURE.PRECURSOR_ID
+                JOIN PRECURSOR ON PRECURSOR.ID = FEATURE.PRECURSOR_ID
+                JOIN PEPTIDE ON PEPTIDE.ID = PRECURSOR_PEPTIDE_MAPPING.PEPTIDE_ID
+                JOIN RUN ON RUN.ID = FEATURE.RUN_ID
+                WHERE PEPTIDE.MODIFIED_SEQUENCE = ?1
+                  AND PRECURSOR.CHARGE = ?2
+            "#.to_string();
+        }
+    
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(OpenSwathSqliteError::from)?;
+    
+        let rows = stmt
+            .query_map(params![modified_sequence, precursor_charge], |row| {
+                let run_basename = extract_basename(&row.get::<_, String>(0)?);
+                Ok(PrecursorPeakBoundaries {
+                    run_filename: run_basename,
+                    alignment_group_id: row.get::<_, Option<i64>>(1)?,
+                    alignment_id: row.get::<_, Option<i64>>(2).unwrap_or(None),
+                    feature_id: row.get(3)?,
+                    left_width: row.get(4)?,
+                    right_width: row.get(5)?,
+                    precursor_id: row.get(6)?,
+                    feature_type: row.get::<_, String>(7)?,
+                    peakgroup_rank: row.get(8)?,
+                    peakgroup_pep: row.get(9)?,
+                    peakgroup_qvalue: row.get(10)?,
+                    alignment_pep: row.get(11)?,
+                    alignment_qvalue: row.get(12)?,
+                    sorted_feature_id: row.get::<_, i64>(3)? // temporarily set to FEATURE_ID
+                })
+            })
+            .map_err(OpenSwathSqliteError::from)?;
+    
+        let mut results = Vec::new();
+        for r in rows {
+            results.push(r?);
+        }
+
+        // --- POST-SORTING LOGIC for sorted ids ---
+
+        let has_alignment = results.iter().any(|b| b.alignment_group_id.is_some());
+        let has_pg = results.iter().any(|b| b.peakgroup_qvalue.is_some());
+
+        if has_alignment && has_pg {
+            // Group by alignment_group_id
+            use std::collections::BTreeMap;
+            let mut grouped: BTreeMap<i64, Vec<PrecursorPeakBoundaries>> = BTreeMap::new();
+            for b in results.into_iter() {
+                let key = b.alignment_group_id.unwrap_or(-1);
+                grouped.entry(key).or_default().push(b);
+            }
+
+            // Sort each group internally: put REFERENCE first, then queries
+            for group in grouped.values_mut() {
+                group.sort_by(|a, b| {
+                    match (a.feature_type.as_str(), b.feature_type.as_str()) {
+                        ("REFERENCE", "QUERY") => std::cmp::Ordering::Less,
+                        ("QUERY", "REFERENCE") => std::cmp::Ordering::Greater,
+                        _ => a.peakgroup_qvalue
+                            .unwrap_or(f64::MAX)
+                            .partial_cmp(&b.peakgroup_qvalue.unwrap_or(f64::MAX))
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    }
+                });
+            }
+
+            // Now order the groups by their REFERENCE's q-value
+            let mut groups: Vec<Vec<PrecursorPeakBoundaries>> = grouped.into_values().collect();
+            groups.sort_by(|a, b| {
+                let qa = a.iter().find(|x| x.feature_type == "REFERENCE").and_then(|x| x.peakgroup_qvalue).unwrap_or(f64::MAX);
+                let qb = b.iter().find(|x| x.feature_type == "REFERENCE").and_then(|x| x.peakgroup_qvalue).unwrap_or(f64::MAX);
+                qa.partial_cmp(&qb).unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+            // Flatten back to results
+            results = groups.into_iter().flatten().collect();
+        }
+        else if has_pg {
+            // Sort by qvalue then rank
+            results.sort_by(|a, b| {
+                a.peakgroup_qvalue
+                    .unwrap_or(f64::MAX)
+                    .partial_cmp(&b.peakgroup_qvalue.unwrap_or(f64::MAX))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| a.peakgroup_rank.cmp(&b.peakgroup_rank))
+            });
+        }
+        else {
+            // Sort by left_width
+            results.sort_by(|a, b| a.left_width.partial_cmp(&b.left_width).unwrap_or(std::cmp::Ordering::Equal));
+        }
+
+        let mut per_run: BTreeMap<String, Vec<&mut PrecursorPeakBoundaries>> = BTreeMap::new();
+
+        // Group mutable references by run
+        for b in &mut results {
+            per_run.entry(b.run_filename.clone()).or_default().push(b);
+        }
+        
+        // Assign incremental ids within each run
+        for (_run, features) in per_run {
+            for (i, b) in features.into_iter().enumerate() {
+                b.sorted_feature_id = (i + 1) as i64;
+            }
+        }
+    
+        Ok(results)
+    }
+    
+
+    /// Fetches a mapping from each modified peptide sequence to its available precursor charge states.
+    ///
+    /// Executes a SQL query against the OpenSwath feature database, joining
+    /// the PRECURSOR, PRECURSOR_PEPTIDE_MAPPING, and PEPTIDE tables, and
+    /// retrieving `MODIFIED_SEQUENCE` and `PRECURSOR.CHARGE`. Optionally
+    /// filters out decoy precursors when `filter_decoys` is `true`.
+    ///
+    /// # Arguments
+    ///
+    /// * `filter_decoys` – if `true`, only include rows where `PRECURSOR.DECOY = 0` (non-decoys).
+    ///
+    /// # Returns
+    ///
+    /// A `BTreeMap<String, Vec<u8>>` mapping each unique modified peptide sequence
+    /// to a **sorted, deduplicated** list of its charge states.
+    ///
+    /// # Errors
+    ///
+    /// Returns `OpenSwathSqliteError` if preparing or executing the SQL query fails.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// let table = reader.fetch_full_peptide_precursor_table(false)?;
+    /// for (peptide, charges) in &table {
+    ///     println!("{} → charges: {:?}", peptide, charges);
+    /// }
+    /// ```
+    pub fn fetch_full_peptide_precursor_table(
+        &self,
+        filter_decoys: bool,
+    ) -> Result<BTreeMap<String, Vec<u8>>, OpenSwathSqliteError> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+
+        let base_query = r#"
+            SELECT
+                PEPTIDE.MODIFIED_SEQUENCE,
+                PRECURSOR.CHARGE AS PRECURSOR_CHARGE
+            FROM PRECURSOR
+            INNER JOIN PRECURSOR_PEPTIDE_MAPPING
+                ON PRECURSOR.ID = PRECURSOR_PEPTIDE_MAPPING.PRECURSOR_ID
+            INNER JOIN PEPTIDE
+                ON PEPTIDE.ID = PRECURSOR_PEPTIDE_MAPPING.PEPTIDE_ID
+        "#;
+
+        let query = if filter_decoys {
+            format!("{} WHERE PRECURSOR.DECOY=0", base_query)
+        } else {
+            base_query.to_string()
+        };
+
+        let mut stmt = conn
+            .prepare(&query)
+            .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+
+        // A BTreeMap will keep the peptide keys sorted for the UI dropdown.
+        let mut map: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+
+        let rows = stmt
+            .query_map([], |row| {
+                // Read out just the two fields we care about:
+                let seq: String = row.get("MODIFIED_SEQUENCE")?;
+                let charge: u8 = row.get("PRECURSOR_CHARGE")?;
+                Ok((seq, charge))
+            })
+            .map_err(OpenSwathSqliteError::from)?;
+
+        for row_res in rows {
+            let (seq, charge) = row_res.map_err(OpenSwathSqliteError::from)?;
+            let entry = map.entry(seq).or_default();
+            entry.push(charge);
+        }
+
+        // Deduplicate & sort each charge‐list in place:
+        for charges in map.values_mut() {
+            charges.sort_unstable();
+            charges.dedup();
+        }
+
+        Ok(map)
+    }
+
+    /// Fetch native IDs and annotations for a peptide precursor
+    ///
+    /// Retrieve both precursor‐isotope IDs and transition IDs, together with
+    /// their human‐readable annotations, for a given modified peptide sequence
+    /// and charge state.
+    ///
+    /// # Parameters
+    /// - `modified_sequence`: The modified peptide sequence to filter by.
+    /// - `precursor_charge`: The charge state of the precursor to filter by.
+    /// - `include_precursor`: If `true`, include precursor isotope entries
+    ///   (formatted as `"{PRECURSOR_ID}_Precursor_i{iso}"`) in the output.
+    /// - `max_number_of_isotopes`: The maximum number of isotopic peaks to
+    ///   generate per precursor (iso = 0..max_number_of_isotopes-1).
+    /// - `include_identifying_transitions`: If `true`, include all transitions;
+    ///   otherwise only include transitions where `DETECTING = 1`.
+    ///
+    /// # Returns
+    /// A `HashMap<String,String>` mapping each **native_id** (`String`)
+    /// (e.g. `"1234_Precursor_i0"` or `"5678"`) to its **annotation**
+    /// (`String`, e.g. `"Precursor_i0"` or `"b6^1^2"`).
+    ///
+    /// # Errors
+    /// Returns `OpenSwathSqliteError::DatabaseError` if any SQLite operation fails.
+    pub fn fetch_native_ids(
+        &self,
+        modified_sequence: &str,
+        precursor_charge: i32,
+        include_precursor: bool,
+        max_number_of_isotopes: usize,
+        include_identifying_transitions: bool,
+    ) -> Result<HashMap<String, String>, OpenSwathSqliteError> {
+        // 1) Get a connection
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+
+        // 2) Fetch all matching precursor IDs
+        let mut stmt = conn
+            .prepare(r#"
+                SELECT PRECURSOR.ID
+                FROM PRECURSOR
+                INNER JOIN PRECURSOR_PEPTIDE_MAPPING
+                  ON PRECURSOR_PEPTIDE_MAPPING.PRECURSOR_ID = PRECURSOR.ID
+                INNER JOIN PEPTIDE
+                  ON PEPTIDE.ID = PRECURSOR_PEPTIDE_MAPPING.PEPTIDE_ID
+                WHERE PEPTIDE.MODIFIED_SEQUENCE = ?1
+                  AND PRECURSOR.CHARGE          = ?2
+            "#)
+            .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+
+        let precursor_ids: Vec<i32> = stmt
+            .query_map(params![modified_sequence, precursor_charge], |row| row.get(0))
+            .map_err(OpenSwathSqliteError::from)?
+            .collect::<Result<_, _>>()
+            .map_err(OpenSwathSqliteError::from)?;
+
+        // Early exit if none
+        if precursor_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        // 3) Build placeholders for IN-clause
+        let placeholders = std::iter::repeat("?")
+            .take(precursor_ids.len())
+            .collect::<Vec<_>>()
+            .join(",");
+
+        // 4) Query transitions + annotations
+        let mut sql = format!(
+            "SELECT \
+                TRANSITION.ID AS TRANSITION_ID, \
+                TYPE || ORDINAL || '^' || CHARGE AS ANNOTATION \
+             FROM TRANSITION_PRECURSOR_MAPPING \
+             INNER JOIN TRANSITION \
+               ON TRANSITION.ID = TRANSITION_PRECURSOR_MAPPING.TRANSITION_ID \
+             WHERE PRECURSOR_ID IN ({})",
+            placeholders
+        );
+        if !include_identifying_transitions {
+            sql.push_str(" AND TRANSITION.DETECTING = 1");
+        }
+
+        let mut stmt2 = conn
+            .prepare(&sql)
+            .map_err(|e| OpenSwathSqliteError::DatabaseError(e.to_string()))?;
+
+        let params: Vec<&dyn rusqlite::ToSql> =
+            precursor_ids.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
+
+        let transition_rows: Vec<(i32, String)> = stmt2
+            .query_map(&*params, |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(OpenSwathSqliteError::from)?
+            .collect::<Result<_, _>>()
+            .map_err(OpenSwathSqliteError::from)?;
+
+        // 5) Build the HashMap
+        let mut map = HashMap::with_capacity(
+            precursor_ids.len() * max_number_of_isotopes + transition_rows.len(),
+        );
+
+        // 6) Insert precursor-isotope entries
+        if include_precursor {
+            for &pid in &precursor_ids {
+                for iso in 0..max_number_of_isotopes {
+                    let native_id  = format!("{}_Precursor_i{}", pid, iso);
+                    let annotation = format!("Precursor_i{}", iso);
+                    map.insert(native_id, annotation);
+                }
+            }
+        }
+
+        // 7) Insert transitions
+        for (tid, ann) in transition_rows {
+            map.insert(tid.to_string(), ann);
+        }
+
+        Ok(map)
+    }   
+    
+    
     /// Method to fetch precursor id and detecting transition id data from the OSW database
     ///
     /// Parameters
