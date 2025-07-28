@@ -44,7 +44,7 @@ impl Default for Input {
             n_concurrent_processes: 1,
             python_path: None,
             last_python_dir: None,
-            threads: std::thread::available_parallelism().unwrap().get() - 1,        
+            threads: std::thread::available_parallelism().unwrap().get().saturating_sub(1).max(1),
             log_level: "info".to_string(),
 
             // rest can be None or whatever makes sense
