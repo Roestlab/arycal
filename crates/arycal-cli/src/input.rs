@@ -2,20 +2,56 @@ use anyhow::{Context, Result};
 use clap::ArgMatches;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
-use std::io::{self, Read};
-use std::path::Path;
+use std::io::{self, Read, Write};
+use std::path::{Path, PathBuf};
 
-use arycal_common::config::{XicConfig, FeaturesConfig, FiltersConfig, AlignmentConfig, XicFileType, FeaturesFileType, VisualizationConfig};
+use arycal_common::config::{AlignmentConfig, FeaturesConfig, FeaturesFileType, FiltersConfig, OpenSwathConfig, PQPConfig, PyProphetConfig, VisualizationConfig, XicConfig, XicFileType};
 
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Input {
     pub xic: XicConfig,
     pub features: FeaturesConfig,
     pub filters: FiltersConfig,
     pub alignment: AlignmentConfig,
+    
+    /// GUI only releated fields
+    pub n_concurrent_processes: usize,
+    pub python_path: Option<String>, // Path to Python executable
 
+    pub threads: usize,
+    pub log_level: String,
+    pub arycal_binary_path: Option<PathBuf>,
+    pub pqp: Option<PQPConfig>,
+    pub openswath: Option<OpenSwathConfig>,
+    pub statistical_validation: Option<PyProphetConfig>,
     pub visualization: Option<VisualizationConfig>, 
+}
+
+impl Default for Input {
+    fn default() -> Self {
+        Input {
+            // these will just use their own Defaults:
+            xic: XicConfig::default(),
+            features: FeaturesConfig::default(),
+            filters: FiltersConfig::default(),
+            alignment: AlignmentConfig::default(),
+
+            // your GUI defaults:
+            n_concurrent_processes: 1,
+            python_path: None,
+            threads: std::thread::available_parallelism().unwrap().get() - 1,        
+            log_level: "info".to_string(),
+
+            // rest can be None or whatever makes sense
+            arycal_binary_path: None,
+            pqp: None,
+            openswath: None,
+            statistical_validation: None,
+            visualization: None,
+        }
+    }
 }
 
 impl Input {
@@ -100,7 +136,7 @@ impl Input {
     /// Validate the parameters.
     fn validate(&self) -> Result<()> {
         // Validate xic type
-        if self.xic.file_type != Some(XicFileType::SqMass) && self.xic.file_type != Some(XicFileType::parquet) {
+        if self.xic.file_type != Some(XicFileType::SqMass) && self.xic.file_type != Some(XicFileType::Parquet) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "Invalid xic type; expected 'sqMass'",
@@ -142,6 +178,22 @@ impl Input {
             }
         }
 
+        Ok(())
+    }
+
+    /// Save parameters to a JSON file.
+    pub fn save_to_file<P: AsRef<Path>>(&self, file_path: P) -> std::io::Result<()> {
+        // Serialize the struct into pretty JSON
+        let json = serde_json::to_string_pretty(self).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("Failed to serialize config: {}", e),
+            )
+        })?;
+
+        // Write to the target file
+        let mut file = File::create(file_path)?;
+        file.write_all(json.as_bytes())?;
         Ok(())
     }
 }
