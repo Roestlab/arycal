@@ -1,8 +1,9 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 
-use arycal_cloudpath::osw::OswAccess;
+use arycal_cloudpath::osw::{OswAccess, PrecursorPeakBoundaries};
+use arycal_cloudpath::util::extract_basename;
 use eframe::egui::{Ui, WidgetText, CollapsingHeader, ScrollArea};
 use egui::{Sense, CursorIcon};
 use egui_plot::{Plot, Line, PlotPoints, Legend, Corner};
@@ -28,7 +29,10 @@ use arycal_common::config::{PlotMode, VisualizationConfig, XicFileType};
 struct TabBehavior<'a> {
     paths:      &'a [PathBuf],
     groups:     &'a [TransitionGroup],
+    boundaries: &'a [Vec<PrecursorPeakBoundaries>],
+    native_id_annotation_map: &'a HashMap<String, String>,
     viz_cfg:    &'a VisualizationConfig,
+    selected_boundaries: &'a std::collections::HashSet<(String, i64)>,
     opts:       SimplificationOptions,
 }
 
@@ -36,12 +40,15 @@ impl<'a> TabBehavior<'a> {
     fn new(
         paths:   &'a [PathBuf],
         groups:  &'a [TransitionGroup],
+        boundaries: &'a [Vec<PrecursorPeakBoundaries>],
+        native_id_annotation_map: &'a HashMap<String, String>,
         viz_cfg: &'a VisualizationConfig,
+        selected_boundaries: &'a std::collections::HashSet<(String, i64)>,
     ) -> Self {
         let mut opts = SimplificationOptions::default();
         opts.all_panes_must_have_tabs = true;
         opts.join_nested_linear_containers = false;
-        Self { paths, groups, viz_cfg, opts }
+        Self { paths, groups, boundaries, native_id_annotation_map, viz_cfg, selected_boundaries, opts }
     }
 }
 
@@ -62,8 +69,10 @@ impl<'a> Behavior<usize> for TabBehavior<'a> {
     ) -> UiResponse {
         // Just draw your plot here — no custom dragging:
         let group   = &self.groups[*pane_idx];
+        let boundaries = &self.boundaries[*pane_idx];
+        let native_id_annotation_map = self.native_id_annotation_map;
         let viz_cfg = self.viz_cfg;
-        VisualizationState::render_plot_inner(ui, group, viz_cfg);
+        VisualizationState::render_plot_inner(ui, group, native_id_annotation_map, viz_cfg, &boundaries, self.selected_boundaries);
         UiResponse::None
     }
 
@@ -78,17 +87,27 @@ impl<'a> Behavior<usize> for TabBehavior<'a> {
 pub struct VisualizationState {
     /// Generic chromatogram reader (sqMass or Parquet)
     readers: Vec<Option<Box<dyn ChromatogramReader>>>,
+    pub run_basenames: Vec<String>,
+
     show_plot_windows: Vec<bool>,
     /// Loaded transition groups
     groups: Vec<TransitionGroup>,
+    /// Loaded peak boundaries for the current peptide+charge
+    group_boundaries: Vec<Vec<PrecursorPeakBoundaries>>,
     /// Index of the currently selected group
     selected_group: Option<usize>,
+    pub boundaries_initialized: bool,
+    pub selected_boundaries: std::collections::HashSet<(String, i64)>,
     /// Remember which feature path we loaded from
     last_feature_path: Option<std::path::PathBuf>,
     /// Remember which peptide+charge we last loaded (to avoid re‐loading every frame).
     last_peptide_charge: Option<(String, usize)>,
+    /// A map of native IDs to annotations, e.g. { "native_id": "annotation" }
+    pub native_id_annotation_map: Option<HashMap<String, String>>,
     /// Optional precursor table for a map of modified sequence and charge state
     pub precursor_table: Option<BTreeMap<String, Vec<u8>>>,
+    /// Optional precursor boundaries
+    pub precursor_boundaries: Option<Vec<PrecursorPeakBoundaries>>,
 
     /// How long the precursor‐table load took
     pub precursor_load_time: std::time::Duration,
@@ -114,12 +133,18 @@ impl VisualizationState {
     pub fn default() -> Self {
         Self {
             readers: Vec::new(),
+            run_basenames: Vec::new(),
             show_plot_windows: Vec::new(),
             groups: Vec::new(),
+            group_boundaries: Vec::new(),
             selected_group: None,
+            boundaries_initialized: false,
+            selected_boundaries: std::collections::HashSet::new(),
             last_feature_path: None,
             last_peptide_charge: None,
+            native_id_annotation_map: None,
             precursor_table: None,
+            precursor_boundaries: None,
             precursor_load_time: std::time::Duration::ZERO,
             num_unique_peptides: 0,
             num_unique_precursors: 0,
@@ -132,8 +157,11 @@ impl VisualizationState {
     }
 
     pub fn ui(&mut self, ui: &mut Ui, config: &mut Input) {
-        ui.heading("Visualization");
 
+        if config.xic.file_paths.is_empty() {
+            ui.label("To visualize extracted ion chromatograms, please add XIC files in the configuration panel. Acceptable file formats are sqMass (sqlite-based output from openswathworkflow) or Parquet (produced by pyprophet's `export parquet`).");
+            return;
+        }
         // reload precursor‐table, reset on feature‐file change…
         self.sync_precursor_table(config);
 
@@ -156,6 +184,7 @@ impl VisualizationState {
             }
         }
         self.plot_render_time = render_start.elapsed();
+
     }
 
     fn sync_precursor_table(&mut self, config: &mut Input) {
@@ -186,6 +215,20 @@ impl VisualizationState {
     /// have a peptide+charge selection.
     fn sync_file_slots(&mut self, config: &Input) {
         let file_count = config.xic.file_paths.len();
+
+        self.run_basenames = config.xic.file_paths
+            .iter()
+            .map(|p| extract_basename(p))
+            .collect::<Vec<_>>();
+        
+        // Run extract_basename on self.run_basenames again encase the original file had multiple extensions
+        self.run_basenames = self.run_basenames
+            .iter()
+            .map(|b| extract_basename(b))
+            .collect::<Vec<_>>();
+
+        println!("Syncing file slots: {} files", file_count);
+        println!("Run basenames: {:?}", self.run_basenames);
     
         // should our windows be open *right now*?
         let plots_open = config
@@ -199,6 +242,9 @@ impl VisualizationState {
             .resize_with(file_count, || None);
         self.groups
             .resize_with(file_count, || TransitionGroup::new(String::new()));
+        self.group_boundaries
+            .resize_with(file_count, || Vec::new());
+
     
         // 2) Always reset ALL the window‐open flags
         self.show_plot_windows.clear();
@@ -214,6 +260,7 @@ impl VisualizationState {
             _ => {
                 // no valid selection → clear our “last” so next time someone picks one, we do load
                 self.last_peptide_charge = None;
+                self.native_id_annotation_map = None;
                 return;
             }
         };
@@ -230,6 +277,33 @@ impl VisualizationState {
             return;
         }
 
+        // Load peak boundaries if not already loaded'
+        self.precursor_boundaries = if let Some(path) = config.features.file_paths.get(0) {
+            match self.fetch_precursor_peak_boundaries(path, pep, charge as i32) {
+                Ok(boundaries) => Some(boundaries),
+                Err(e) => {
+                    eprintln!("Error fetching precursor peak boundaries: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        self.selected_boundaries.clear();
+        self.boundaries_initialized = false;
+
+        // Filter self,precursor_boundaries to only those that match the current self.run_basenames
+        if self.precursor_boundaries.is_some() {
+            self.precursor_boundaries = self.precursor_boundaries.as_mut().map(|boundaries| {
+                boundaries.iter()
+                    .filter(|b| self.run_basenames.contains(&b.run_filename))
+                    .cloned()
+                    .collect()
+            });
+        }
+
+        println!("precursor_boundaries: {:?}", self.precursor_boundaries);
+
         // 3) Otherwise update our “last” and actually do the work:
         self.last_peptide_charge = Some((pep.clone(), charge));
 
@@ -237,8 +311,22 @@ impl VisualizationState {
             // ensure reader slot exists
             self.ensure_reader_for_file(i, config);
 
+            // get file basename
+            let run_basename = extract_basename(path);
+            // run extract_basename again to handle multiple extensions
+            // TODO: Need to implement a more robust way to handle multiple extensions
+            let run_basename = extract_basename(&run_basename);
+
+            // Filter peak boundaries for this run
+            self.group_boundaries[i] = if let Some(boundaries) = &self.precursor_boundaries {
+                println!("Filtering boundaries for run: {}", run_basename);
+                boundaries.iter().filter(|b| b.run_filename == run_basename).cloned().collect()
+            } else {
+                Vec::new()
+            };            
+
             // fetch native IDs
-            let raw_ids: Vec<String> = self
+            let native_id_annotation_map = self
                 .fetch_native_ids(
                     &config.features.file_paths[0],
                     pep,
@@ -248,6 +336,15 @@ impl VisualizationState {
                     config.filters.include_identifying_transitions.unwrap_or(false),
                 )
                 .unwrap_or_default();
+
+            // store the native_id_annotation_map for later use
+            self.native_id_annotation_map = Some(native_id_annotation_map.clone());
+
+            let raw_ids = native_id_annotation_map
+                .into_iter()
+                .map(|(id, _)| id)
+                .collect::<Vec<String>>();
+
             let native_ids: Vec<&str> = raw_ids.iter().map(String::as_str).collect();
 
             println!(
@@ -282,7 +379,7 @@ impl VisualizationState {
                         .and_then(|p| SqMassAccess::new(p).ok())
                         .map(|r| Box::new(r) as _)
                 }
-                Some(XicFileType::parquet) => {
+                Some(XicFileType::Parquet) => {
                     config.xic.file_paths[i]
                         .to_str()
                         .and_then(|p| DuckDBParquetChromatogramReader::new(p).ok())
@@ -312,8 +409,13 @@ impl VisualizationState {
             .clone()
             .unwrap_or_else(VisualizationConfig::default);
 
+        let native_id_annotation_map: HashMap<String,String> = self.native_id_annotation_map
+            .clone()              
+            .unwrap_or_default(); 
+
         for i in 0..n {
             let group = &self.groups[i];
+            let boundaries = &self.group_boundaries[i];
             let open_flag = &mut self.show_plot_windows[i];
             let path      = &config.xic.file_paths[i];
             let title     = path
@@ -335,7 +437,7 @@ impl VisualizationState {
                 .default_size([600.0, 400.0])
                 .show(ui.ctx(), |ui| {
                     // call your helper with the entire config struct
-                    Self::render_plot_inner(ui, group, &viz_cfg_owned);
+                    Self::render_plot_inner(ui, group, &native_id_annotation_map, &viz_cfg_owned, &boundaries, &self.selected_boundaries);
                 });
         }
     }
@@ -348,6 +450,10 @@ impl VisualizationState {
     
         let viz_cfg = config.visualization
             .get_or_insert_with(VisualizationConfig::default);
+        let native_id_annotation_map: HashMap<String,String> = self.native_id_annotation_map
+        .clone()              
+        .unwrap_or_default(); 
+
         let rows = viz_cfg.grid_rows as usize;
         let cols = viz_cfg.grid_cols as usize;
         let tree_id = ui.id().with("embedded_tabs");
@@ -391,14 +497,16 @@ impl VisualizationState {
             let root = tiles.insert_grid_tile(cell_ids);
             self.tiles = Some(Tree::new(tree_id, root, tiles));
         }
-            
     
         if let Some(tree) = &mut self.tiles {
             // build a behavior that owns references into `self.groups` and `viz_cfg`
             let mut behavior = TabBehavior::new(
                 &config.xic.file_paths,
                 &self.groups,
+                &self.group_boundaries,
+                &native_id_annotation_map,
                 viz_cfg,
+                &self.selected_boundaries,
             );
             // ONE CALL to tree.ui will both layout the grid+tabs and invoke pane_ui for each pane:
             tree.ui(&mut behavior, ui);
@@ -410,11 +518,14 @@ impl VisualizationState {
     fn render_plot_inner(
         ui: &mut egui::Ui,
         group: &TransitionGroup,
+        native_id_annotation_map: &HashMap<String, String>,
         viz_cfg: &VisualizationConfig,
+        boundaries: &[PrecursorPeakBoundaries],
+        selected_boundaries: &std::collections::HashSet<(String, i64)>,
     ) {
         // start the builder as before
         let mut plot = Plot::new(group.group_id.clone())
-            .height(350.0)
+            // .height(350.0)
             .show_background(viz_cfg.show_background)
             .show_grid(viz_cfg.show_grid);
 
@@ -468,12 +579,86 @@ impl VisualizationState {
                     .map(|(&rt, &i)| [rt, i])
                     .collect();
 
+                // Get annotation for this native_id, if available
+                let annotation = native_id_annotation_map
+                    .get(native_id)
+                    .map(|a| a.to_string())
+                    .unwrap_or_else(|| native_id.clone());
+
                 plot_ui.line(
-                    egui_plot::Line::new(native_id.clone(), pts)
+                    egui_plot::Line::new(annotation.clone(), pts)
                         .color(color)
                         .width(2.0),
                 );
             }
+
+            // Overlay peak boundaries as vertical dashed lines
+            if !boundaries.is_empty() {
+
+                let max_y = group.chromatograms
+                    .values()
+                    .flat_map(|c| c.intensities.iter())
+                    .cloned()
+                    .fold(0.0, f64::max);
+            
+                for b in boundaries {
+                    let key = (b.run_filename.clone(), b.feature_id);
+
+                    if selected_boundaries.contains(&key) {
+                        let left = b.left_width;
+                        let right = b.right_width;
+
+                        println!("Drawing boundary for run {} - feature {}: left={}, right={}", b.run_filename, b.feature_id, left, right);
+                
+                        // Generate a distinct color per feature
+                        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                        b.sorted_feature_id.hash(&mut hasher);
+                        let hue = (hasher.finish() % 360) as f32;
+                        let color = VisualizationState::hsl_to_rgb(hue, 0.8, 0.5);
+                
+                        // Build legend label
+                        let label = format!("F{}", b.sorted_feature_id);
+                
+                        // // Combine left and right boundaries into one line with a gap
+                        // let points = vec![
+                        //     [left, 0.0], [left, max_y],
+                        //     [f64::NAN, f64::NAN], // break between segments
+                        //     [right, 0.0], [right, max_y],
+                        // ];
+                
+                        // let boundary_line = Line::new(
+                        //         label.clone(),
+                        //         PlotPoints::from(points)
+                        //     )
+                        //     .color(color)
+                        //     .style(egui_plot::LineStyle::dashed_loose())
+                        //     .width(1.5);
+                
+                        // plot_ui.line(boundary_line);
+                        let left_line = Line::new(
+                            label.clone(),
+                            PlotPoints::from(vec![[left, 0.0], [left, max_y]])
+                        )
+                        .color(color)
+                        .style(egui_plot::LineStyle::dashed_loose())
+                        .width(1.5);
+                        
+                        let right_line = Line::new(
+                            label.clone(),  // same label
+                            PlotPoints::from(vec![[right, 0.0], [right, max_y]])
+                        )
+                        .color(color)
+                        .style(egui_plot::LineStyle::dashed_loose())
+                        .width(1.5);
+                        // .show_legend(false);  // <-- hide this duplicate in legend
+                        
+                        plot_ui.line(left_line);
+                        plot_ui.line(right_line);
+                        
+                    }
+                } // for loop
+            }
+            
         });
     }
     
@@ -515,7 +700,7 @@ impl VisualizationState {
         Ok(())
     }
 
-    fn fetch_native_ids(&mut self, features_path: &Path, peptide: &str, charge: i32, include_precursor: bool, max_number_of_isotopes: usize, include_identifying_transitions: bool) -> anyhow::Result<Vec<String>> {
+    fn fetch_native_ids(&mut self, features_path: &Path, peptide: &str, charge: i32, include_precursor: bool, max_number_of_isotopes: usize, include_identifying_transitions: bool) -> anyhow::Result<HashMap<String, String>> {
         let reader = OswAccess::new(features_path.to_str().unwrap(), true)?;
         let native_ids = reader.fetch_native_ids(peptide, charge, include_precursor, max_number_of_isotopes, include_identifying_transitions);
 
@@ -525,4 +710,14 @@ impl VisualizationState {
         }
     }
     
+    fn fetch_precursor_peak_boundaries(&mut self, features_path: &Path, peptide: &str, charge: i32) -> anyhow::Result<Vec<PrecursorPeakBoundaries>> {
+        let reader = OswAccess::new(features_path.to_str().unwrap(), true)?;
+        let boundaries = reader.get_precursor_peak_boundaries(peptide, charge);
+
+        match boundaries {
+            Ok(b) => Ok(b),
+            Err(e) => Err(anyhow::anyhow!("Failed to fetch precursor peak boundaries: {}", e)),
+        }
+    }
+
 }

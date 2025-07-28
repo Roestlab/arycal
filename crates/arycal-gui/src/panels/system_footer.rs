@@ -4,6 +4,8 @@ use sysinfo::System;
 use eframe::egui::Ui;
 use egui::ProgressBar;
 
+use arycal_cli::input::Input;
+
 
 /// Draw the system settings panel.
 ///
@@ -15,9 +17,57 @@ pub fn draw_system_settings(
     system: &mut System,
     last_refresh: &mut Instant,
     ui: &mut Ui,
+    config: &mut Input,
 ) {
     // theme buttons
     egui::widgets::global_theme_preference_buttons(ui);
+
+    // Add numeric input for the number of concurrent processes/jobs 
+    ui.horizontal(|ui| {
+        ui.label("Concurrent Processes:");
+        // Use a slider or numeric input to set the number of processes
+        // Here we use a simple numeric input for demonstration
+        let cap_num_processes = std::thread::available_parallelism().unwrap().get();
+
+        ui.add(egui::DragValue::new(&mut config.n_concurrent_processes).speed(1.0).range(1..=cap_num_processes)).on_hover_text("Set the number of concurrent processes to run. This allows you to run multiple jobs in parallel. Adjust based on your system's capabilities. Prioritize threads for a task that requires more CPU resources, rather than spawning multiple processes.");
+    });
+
+    ui.add_space(2.0);
+
+    ui.horizontal(|ui| {
+        ui.label("Python Executable:");
+        let mut py_display = config.python_path.clone().unwrap_or_else(|| "System Default".to_string());
+        if ui.text_edit_singleline(&mut py_display).changed() {
+            if py_display.trim().is_empty() {
+                config.python_path = None;
+            } else {
+                config.python_path = Some(py_display.trim().to_string());
+            }
+        }
+        if ui.button("…").clicked() {
+            if let Some(path) = rfd::FileDialog::new()
+                .set_title("Select Python Executable")
+                .pick_file()
+            {
+                config.python_path = Some(path.display().to_string());
+            }
+        }
+    });
+
+    if let Some(python_path) = &config.python_path {
+        if let Some(parent) = std::path::Path::new(python_path).parent() {
+            let mut current_path = std::env::var_os("PATH").unwrap_or_default();
+            let mut new_path = std::ffi::OsString::new();
+            new_path.push(parent.as_os_str());
+            new_path.push(std::path::MAIN_SEPARATOR.to_string());
+            new_path.push(current_path);
+            std::env::set_var("PATH", new_path);
+            println!("Appended {:?} to PATH", parent);
+        }
+    }
+    
+    
+
     ui.add_space(4.0);
 
     // only refresh once a second:
@@ -29,7 +79,9 @@ pub fn draw_system_settings(
     // ask egui to repaint again in 1s
     ui.ctx().request_repaint_after(Duration::from_secs(1));
 
-    egui::CollapsingHeader::new("System Info").show(ui, |ui| {
+    egui::CollapsingHeader::new("System Info")
+    .default_open(true)
+    .show(ui, |ui| {
         // OS information
         ui.horizontal(|ui| {
             ui.label("OS:");
@@ -54,14 +106,8 @@ pub fn draw_system_settings(
                     .text(format!("{:.1} / {:.1} GB", used, total)),
             );
         });
-    });
+    });   
 
-    ui.add_space(4.0);
-    ui.separator();
-    ui.hyperlink_to(
-        format!("{}  ARYCAL on GitHub", egui::special_emojis::GITHUB),
-        "https://github.com/singjc/arycal",
-    );
 }
 
 

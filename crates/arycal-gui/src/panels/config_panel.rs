@@ -1,219 +1,54 @@
 use arycal_cli::input::Input;
-use eframe::egui::{Ui, ComboBox, Slider, TextEdit, ScrollArea, Sense};
-use eframe::egui::{Id, Pos2, Rect};
-use egui::{StrokeKind, UiBuilder};
-use egui::{
-    Frame,  Stroke, Vec2,
-    epaint::Color32,
-};
+use eframe::egui::{Ui, ComboBox, Slider, TextEdit};
 use std::path::PathBuf;
-use arycal_common::config::{XicFileType, FeaturesFileType};
-use rfd::FileDialog;
+use arycal_common::config::{PQPConfig, OpenSwathConfig, PyProphetConfig};
 
-
+use crate::app::AppTab;
+use crate::panels::peptide_query_parameter_settings::draw_pqp_file_settings;
+use crate::panels::openswath_settings::draw_osw_file_settings;
+use crate::panels::validation_settings::draw_validation_file_settings;
+use crate::panels::visualization_settings::draw_visualization_file_settings;
 
 
 /// Draw the shared XIC, Features, and Filters config
-pub fn draw_shared(ui: &mut Ui, config: &mut Input) {
+pub fn draw_shared(ui: &mut Ui, current_tab: &AppTab, config: &mut Input) {
     ui.heading("File Settings");
     ui.add_space(4.0);
 
-    // XIC config
-    egui::CollapsingHeader::new("XIC Files")
-    .default_open(true)
-    .show(ui, |ui| {
-        // if the user hasn’t picked a type yet, but they have dropped in files,
-        // try to auto‐detect from the first file’s extension:
-        if config.xic.file_type.is_none() {
-            if let Some(first_path) = config.xic.file_paths.get(0) {
-                if let Some(ext) = first_path.extension().and_then(|e| e.to_str()) {
-                    match ext.to_lowercase().as_str() {
-                        "sqmass"  => config.xic.file_type = Some(XicFileType::SqMass),
-                        "parquet" => config.xic.file_type = Some(XicFileType::parquet),
-                        _         => config.xic.file_type = Some(XicFileType::Unknown),
-                    }
-                }
-            }
-        }
-
-        // file type combo
-        ui.horizontal(|ui| {
-            ui.label("XIC Type:");
-            let current = config.xic.file_type
-                .as_ref()
-                .map(|v| match v {
-                    XicFileType::SqMass   => "sqMass",
-                    XicFileType::parquet  => "parquet",
-                    XicFileType::Unknown  => "unknown",
-                })
-                .unwrap_or("None")
-                .to_string();
-
-            ComboBox::from_id_salt("xic_type")
-                .selected_text(current)
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut config.xic.file_type, Some(XicFileType::SqMass),  "sqMass");
-                    ui.selectable_value(&mut config.xic.file_type, Some(XicFileType::parquet), "parquet");
-                });
-        });
-
-        // file paths drag & drop
-        edit_file_paths(ui, &mut config.xic.file_paths, "XIC", Some("Select XIC Files"), Some(&vec!["sqMass", "parquet"]));
-    });
-
-    // Features config
-    egui::CollapsingHeader::new("Feature Files")
-    .default_open(true)
-    .show(ui, |ui| {
-        // Auto‐detect from the first path’s extension if not set yet
-        if config.features.file_type.is_none() {
-            if let Some(first) = config.features.file_paths.get(0) {
-                if let Some(ext) = first.extension().and_then(|e| e.to_str()) {
-                    config.features.file_type = Some(match ext.to_lowercase().as_str() {
-                        "osw" => FeaturesFileType::OSW,
-                        _     => FeaturesFileType::Unknown,
-                    });
-                }
-            }
-        }
-
-        // Now draw the combo box, letting the user override if they like
-        ui.horizontal(|ui| {
-            ui.label("Features Type:");
-            let current = config.features.file_type
-                .as_ref()
-                .map(|v| match v {
-                    FeaturesFileType::OSW     => "osw",
-                    FeaturesFileType::Unknown => "unknown",
-                })
-                .unwrap_or("None")
-                .to_string();
-
-            ComboBox::from_id_salt("features_type")
-                .selected_text(current)
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut config.features.file_type,
-                        Some(FeaturesFileType::OSW),
-                        "osw",
-                    );
-                    ui.selectable_value(
-                        &mut config.features.file_type,
-                        Some(FeaturesFileType::Unknown),
-                        "unknown",
-                    );
-                });
-        });
-        // file paths drag & drop
-        edit_file_paths(ui, &mut config.features.file_paths, "Feature", Some("Select Feature Files"), Some(&["osw"]));
-    });
-
-    // Filters config
-    ui.collapsing("Filters Configuration", |ui| {
-        ui.checkbox(&mut config.filters.decoy, "Exclude Decoys");
-        ui.checkbox(&mut config.filters.include_identifying_transitions.unwrap_or_default(), "Include Identifying Transitions");
-        ui.checkbox(&mut config.xic.include_precursor, "Include Precursor");
-        ui.add(Slider::new(&mut config.xic.num_isotopes, 1..=10).text("Number of Isotopes"));
-        // Add numeric input for config.filters.max_score_ms2_qvalue, range 0 to 1
-        ui.horizontal(|ui| {
-            ui.label("Max Score MS2 Q-value:");
-            let mut max_score = config.filters.max_score_ms2_qvalue.unwrap_or(0.0).to_string();
-            if ui.add(TextEdit::singleline(&mut max_score)).changed() {
-                if let Ok(val) = max_score.parse::<f64>() {
-                    config.filters.max_score_ms2_qvalue = Some(val);
-                }
-            }
-        });
-    });
-}
-
-
-/// Draw additional settings for OpenSwath tab
-pub fn draw_open_swath(ui: &mut Ui, config: &mut Input) {
-    ui.heading("OpenSwath Workflow Settings");
-    ui.horizontal(|ui| {
-        ui.label("Binary Path:");
-        // let mut path = config.open_swath.binary_path.clone().unwrap_or_default();
-        let mut path = "";
-        if ui.add(TextEdit::singleline(&mut path)).changed() {
-            // config.open_swath.binary_path = Some(path.clone());
-            todo!("Implement binary path setting");
-        }
-    });
-}
-
-/// Draw additional settings for Alignment tab
-pub fn draw_alignment(ui: &mut Ui, config: &mut Input) {
-    ui.heading("Alignment Settings");
-    ui.horizontal(|ui| {
-        ui.label("Batch Size:");
-        let mut bs = config.alignment.batch_size.unwrap_or(0).to_string();
-        if ui.add(TextEdit::singleline(&mut bs)).changed() {
-            if let Ok(val) = bs.parse::<usize>() {
-                config.alignment.batch_size = Some(val);
-            }
-        }
-    });
-    ui.horizontal(|ui| {
-        ui.label("Method:");
-        ComboBox::from_id_salt("alignment_method")
-            .selected_text(config.alignment.method.clone())
-            .show_ui(ui, |ui| {
-                ui.selectable_value(&mut config.alignment.method, "DTW".into(), "DTW");
-                ui.selectable_value(&mut config.alignment.method, "FFT".into(), "FFT");
-                ui.selectable_value(&mut config.alignment.method, "FFT+DTW".into(), "FFT+DTW");
-            });
-    });
-    ui.label("Reference Type:");
-    ComboBox::from_id_salt("reference_type")
-        .selected_text(config.alignment.reference_type.clone())
-        .show_ui(ui, |ui| {
-            ui.selectable_value(&mut config.alignment.reference_type, "star".into(), "STAR");
-            ui.selectable_value(&mut config.alignment.reference_type, "mst".into(), "MST");
-            ui.selectable_value(&mut config.alignment.reference_type, "progressive".into(), "PROGRESSIVE");
-        });
-    ui.label("Reference File:");
-    ComboBox::from_id_salt("reference_file")
-        .selected_text(config.alignment.reference_run.clone().unwrap_or_default())
-        .show_ui(ui, |ui| {
-            for path in config.xic.file_paths.iter() {
-                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    ui.selectable_value(&mut config.alignment.reference_run, Some(name.to_string()), name);
-                }
-            }
-        });
-    ui.checkbox(&mut config.alignment.use_tic, "Use TIC");
-    ui.add(Slider::new(&mut config.alignment.smoothing.sgolay_window, 1..=51).text("Savitzky-Golay Window"));
-    ui.add(Slider::new(&mut config.alignment.smoothing.sgolay_order, 1..=21).text("Savitzky-Golay Order"));
-    ui.label("RT Mapping Tolerance:");
-    let mut rt_tol = config.alignment.rt_mapping_tolerance.unwrap_or_default().to_string();
-    if ui.add(TextEdit::singleline(&mut rt_tol)).changed() {
-        if let Ok(val) = rt_tol.parse::<f64>() {
-            config.alignment.rt_mapping_tolerance = Some(val);
+    match current_tab {
+        AppTab::Visualization | &AppTab::Alignment => {
+            draw_visualization_file_settings(ui, config);
+        },
+        AppTab::PQPGeneration => {
+            let pqp_cfg = config.pqp
+                .get_or_insert_with(PQPConfig::default);
+            draw_pqp_file_settings(ui, pqp_cfg);
+        },
+        AppTab::OpenSwath => {
+            let osw_cfg: &mut OpenSwathConfig =
+                config.openswath.get_or_insert_with(OpenSwathConfig::default);
+            draw_osw_file_settings(ui, osw_cfg);
+        },
+        AppTab::Validation => {
+            let val_cfg = config.statistical_validation
+                .get_or_insert_with(PyProphetConfig::default);
+            draw_validation_file_settings(ui, val_cfg);
+        },
+        _ => {
+            // No additional file settings for PQP Generation tab
+            ui.label("No file settings for this tab.");
         }
     }
-    ui.label("Decoy Peak Mapping Method:");
-    ComboBox::from_id_salt("decoy_peak_mapping_method")
-        .selected_text(config.alignment.decoy_peak_mapping_method.clone())
-        .show_ui(ui, |ui| {
-            ui.selectable_value(&mut config.alignment.decoy_peak_mapping_method, "SHUFFLE".into(), "shuffle");
-            ui.selectable_value(&mut config.alignment.decoy_peak_mapping_method, "RANDOM_REGION".into(), "random_region");
-        });
-    ui.label("Decoy Window Size:");
-    let mut dw = config.alignment.decoy_window_size.unwrap_or_default().to_string();
-    if ui.add(TextEdit::singleline(&mut dw)).changed() {
-        if let Ok(val) = dw.parse::<usize>() {
-            config.alignment.decoy_window_size = Some(val);
-        }
-    }
-    ui.add_space(25.0);
-    ui.separator();
 }
+
+
+
 
 /// Shared file paths drag & drop widget
 pub fn edit_file_paths(
     ui: &mut egui::Ui,
     file_paths: &mut Vec<PathBuf>,
+    button_name: &str,
     file_type_name: &str,
     file_dialog_title: Option<&str>,
     file_dialog_filter: Option<&[&str]>,
@@ -305,7 +140,7 @@ pub fn edit_file_paths(
             // 3) Add / remove buttons
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                if ui.button(format!("➕ Add {}…", file_type_name)).clicked() {
+                if ui.button(format!("➕ Add {}…", button_name)).clicked() {
                     let mut dlg = rfd::FileDialog::new();
                     if let Some(t) = file_dialog_title {
                         dlg = dlg.set_title(t);
@@ -319,7 +154,7 @@ pub fn edit_file_paths(
                     }
                 }
                 if !file_paths.is_empty()
-                    && ui.button(format!("❌ Remove Last {}", file_type_name)).clicked()
+                    && ui.button(format!("❌ Remove Last {}", button_name)).clicked()
                 {
                     file_paths.pop();
                 }
