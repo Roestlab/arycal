@@ -181,7 +181,7 @@ impl FeatureData {
         qvalue: Option<ValueEntryType<f64>>,
         normalized_summed_intensity: Option<ValueEntryType<f64>>,
     ) -> Self {
-        let basename = Self::extract_basename(&filename);
+        let basename = crate::osw::extract_basename(&filename);
 
         FeatureData {
             filename,
@@ -199,23 +199,6 @@ impl FeatureData {
         }
     }
 
-    /// Extracts the basename without any extensions.
-    fn extract_basename(filename: &str) -> String {
-        // Use Path to get the file stem and remove all extensions
-        let path = Path::new(filename);
-        let mut stem = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or_default()
-            .to_string();
-
-        // Remove any additional extensions
-        while let Some(pos) = stem.rfind('.') {
-            stem.truncate(pos); // Remove the last extension
-        }
-
-        stem
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, DeepSizeOf )]

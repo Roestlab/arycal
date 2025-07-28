@@ -92,9 +92,9 @@ pub fn draw_alignment(ui: &mut Ui, toasts: &mut Toasts, config: &mut Input) {
     ComboBox::from_id_salt("reference_type")
         .selected_text(config.alignment.reference_type.clone())
         .show_ui(ui, |ui| {
-            ui.selectable_value(&mut config.alignment.reference_type, "star".into(), "STAR");
-            ui.selectable_value(&mut config.alignment.reference_type, "mst".into(), "MST");
-            ui.selectable_value(&mut config.alignment.reference_type, "progressive".into(), "PROGRESSIVE");
+            ui.selectable_value(&mut config.alignment.reference_type, "star".into(), "star");
+            ui.selectable_value(&mut config.alignment.reference_type, "mst".into(), "mst");
+            ui.selectable_value(&mut config.alignment.reference_type, "progressive".into(), "progressive");
         });
     ui.label("Reference File:");
     ComboBox::from_id_salt("reference_file")
@@ -139,7 +139,7 @@ pub fn draw_alignment(ui: &mut Ui, toasts: &mut Toasts, config: &mut Input) {
         let mut threads = config.threads.to_string();
         if ui.add(TextEdit::singleline(&mut threads)).changed() {
             if let Ok(val) = threads.parse::<usize>() {
-                config.threads = val;
+                config.threads = val.max(1);
             }
         }
     });

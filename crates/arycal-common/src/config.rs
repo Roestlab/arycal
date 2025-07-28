@@ -511,7 +511,7 @@ impl Default for OpenSwathConfig {
             read_options: "cacheWorkingInMemory".to_string(),
             temp_directory: Some(PathBuf::from("./")),
             batch_size: 1000,
-            threads: std::thread::available_parallelism().unwrap().get() - 2,
+            threads: std::thread::available_parallelism().unwrap().get().saturating_sub(2).max(1),
             outer_loop_threads: -1,
             rt_normalization_alignment_method: "lowess".to_string(),
             rt_normalization_outlier_method: "none".to_string(),
