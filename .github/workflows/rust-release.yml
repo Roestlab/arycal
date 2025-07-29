@@ -67,24 +67,26 @@ jobs:
           toolchain: 1.85.0
           override: true
 
-      - name: Add musl target
+      - name: Install cross for musl builds
         if: contains(matrix.target, 'musl')
-        run: rustup target add x86_64-unknown-linux-musl
+        run: cargo install cross --git https://github.com/cross-rs/cross
 
-      - name: Install musl toolchain (for Linux musl builds)
-        if: contains(matrix.target, 'musl')
-        run: sudo apt-get update && sudo apt-get install -y musl-tools g++-musl
-
+      # Musl builds use cross
       - name: Build Arycal (Regular)
         if: matrix.name == 'arycal-x86_64-unknown-linux-musl'
-        run: cargo build --release --target=${{ matrix.target }}
+        run: cross build --release --target=${{ matrix.target }}
 
       - name: Build Arycal (with MPI)
         if: matrix.name == 'arycal-x86_64-unknown-linux-musl-mpi'
-        run: cargo build --release --target=${{ matrix.target }} --features mpi
+        run: cross build --release --target=${{ matrix.target }} --features mpi
 
       - name: Build Arycal-GUI
         if: matrix.name == 'arycal-gui-x86_64-unknown-linux-musl'
+        run: cross build --release --target=${{ matrix.target }}
+
+      # Non-musl builds still use normal cargo
+      - name: Build Non-Musl Targets
+        if: contains(matrix.target, 'musl') == false
         run: cargo build --release --target=${{ matrix.target }}
 
       - name: Upload Release Binary
