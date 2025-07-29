@@ -1,5 +1,5 @@
 # Stage 1: Build binaries with musl toolchain
-FROM clux/muslrust:1.85.0 AS builder
+FROM clux/muslrust:1.85.1-stable AS builder
 
 WORKDIR /app
 
