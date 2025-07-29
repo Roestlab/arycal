@@ -27,26 +27,26 @@ jobs:
     strategy:
       matrix:
         include:
-          # CLI: musl (current dynamic)
+          # CLI: musl (dynamic via musl-gcc)
           - name: arycal-cli-linux-musl
             bin: arycal
             os: ubuntu-latest
 
-          # CLI: musl (fully static, cross)
+          # CLI: musl (fully static via cross)
           - name: arycal-cli-linux-musl-static
             bin: arycal
             target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             cross: true
 
-          # CLI: glibc (newer)
+          # CLI: glibc + MPI
           - name: arycal-cli-linux-gnu-mpi
             bin: arycal
             target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             features: mpi
 
-          # GUI: glibc (current 22.04)
+          # GUI: glibc (22.04)
           - name: arycal-gui-linux-gnu
             bin: arycal-gui
             target: x86_64-unknown-linux-gnu
@@ -75,51 +75,54 @@ jobs:
       - uses: actions/checkout@v4
       - run: mkdir -p artifacts
 
-      # Prepare cross for static musl build
+      # cross for fully-static musl
       - name: Install cross
         if: matrix.cross == true
         run: cargo install cross --git https://github.com/cross-rs/cross
 
-      # ---- Normal builds ----
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: 1.85.0
           override: true
 
+      # musl dynamic
       - name: Install musl-tools
         if: matrix.name == 'arycal-cli-linux-musl'
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
-      - name: Build Arycal CLI (musl)
+      - name: Build CLI (musl)
         if: matrix.name == 'arycal-cli-linux-musl'
         run: CC=musl-gcc cargo build --release && cp target/release/${{ matrix.bin }} artifacts/
 
-      - name: Build Arycal CLI (fully static musl)
+      # musl static
+      - name: Build CLI (musl-static)
         if: matrix.name == 'arycal-cli-linux-musl-static'
         run: cross build --release --target=${{ matrix.target }} && cp target/${{ matrix.target }}/release/${{ matrix.bin }} artifacts/
 
-      - name: Install GUI dependencies
-        if: startsWith(matrix.name, 'arycal-gui-linux-gnu')
+      # GUI glibc
+      - name: Install GUI deps
+        if: matrix.name == 'arycal-gui-linux-gnu'
         run: sudo apt-get update && sudo apt-get install -y libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev libegl1-mesa libgtk-3-dev
 
-      - name: Build Arycal GUI
-        if: startsWith(matrix.name, 'arycal-gui-linux-gnu')
+      - name: Build GUI (glibc)
+        if: matrix.name == 'arycal-gui-linux-gnu'
         run: cargo build --release --target=${{ matrix.target }} && cp target/${{ matrix.target }}/release/${{ matrix.bin }} artifacts/
 
+      # MPI glibc
       - name: Install MPI
-        if: startsWith(matrix.name, 'arycal-cli-linux-gnu-mpi')
+        if: matrix.name == 'arycal-cli-linux-gnu-mpi'
         run: sudo apt-get update && sudo apt-get install -y libopenmpi-dev openmpi-bin
 
-      - name: Build Arycal CLI (MPI)
-        if: startsWith(matrix.name, 'arycal-cli-linux-gnu-mpi')
+      - name: Build CLI (MPI)
+        if: matrix.name == 'arycal-cli-linux-gnu-mpi'
         run: cargo build --release --target=${{ matrix.target }} --features mpi && cp target/${{ matrix.target }}/release/${{ matrix.bin }} artifacts/
 
-      # Non-Linux targets
-      - name: Add target for non-Linux builds
+      # Non-Linux
+      - name: Add non-Linux target
         if: startsWith(matrix.target, 'x86_64-apple') || startsWith(matrix.target, 'x86_64-pc')
         run: rustup target add ${{ matrix.target }}
 
-      - name: Build Non-Linux Targets
+      - name: Build non-Linux
         if: startsWith(matrix.target, 'x86_64-apple') || startsWith(matrix.target, 'x86_64-pc')
         run: cargo build --release --target=${{ matrix.target }} && cp target/${{ matrix.target }}/release/${{ matrix.bin }} artifacts/
 
@@ -134,7 +137,7 @@ jobs:
           zip: windows
           token: ${{ secrets.GITHUB_TOKEN }}
 
-  # ----------- Compat Builds (slower, in parallel) -----------
+  # ----------- Compat Builds (Ubuntu 18.04 container) -----------
   upload-assets-compat:
     needs: create-release
     strategy:
@@ -145,30 +148,34 @@ jobs:
             bin: arycal-gui
             target: x86_64-unknown-linux-gnu
             container: ubuntu:18.04
+
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: mkdir -p artifacts
 
-      - name: Build in Ubuntu 18.04 container (install Rust via rustup)
+      - name: Build in Ubuntu 18.04 container
         run: |
-          docker run --rm --user $(id -u):$(id -g) -v $(pwd):/work -w /work ${{ matrix.container }} bash -c "
-            apt-get update &&
-            apt-get install -y curl build-essential pkg-config libssl-dev libx11-dev libxrandr-dev libxi-dev \
-                               libgl1-mesa-dev libegl1-mesa libgtk-3-dev musl-tools &&
-            curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain 1.85.0 &&
-            source \$HOME/.cargo/env &&
-            rustup target add ${{ matrix.target }} &&
-            cargo build --release --target=${{ matrix.target }} &&
-            cp target/${{ matrix.target }}/release/${{ matrix.bin }} artifacts/
-          "
+          docker run --rm \
+            -v "$(pwd)":/work -w /work \
+            ${{ matrix.container }} bash -c "
+              apt-get update &&
+              apt-get install -y curl build-essential pkg-config libssl-dev \
+                                 libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev \
+                                 libegl1-mesa libgtk-3-dev musl-tools &&
+              curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain 1.85.0 &&
+              source \$HOME/.cargo/env &&
+              rustup target add ${{ matrix.target }} &&
+              cargo build --release --target=${{ matrix.target }} &&
+              cp target/${{ matrix.target }}/release/${{ matrix.bin }} artifacts/
+            "
 
-      - name: Upload Release Binary
+      - name: Upload Compat Binary
         uses: taiki-e/upload-rust-binary-action@v1
         with:
           bin: ${{ matrix.bin }}
           archive: ${{ matrix.bin }}-${{ github.ref_name }}-${{ matrix.name }}
-          target: ${{ matrix.target || '' }}
+          target: ${{ matrix.target }}
           include: LICENSE,README.md
           tar: unix
           zip: windows
