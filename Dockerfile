@@ -1,18 +1,12 @@
 # Stage 1: Build binaries with musl toolchain
-FROM rust:1.85-slim AS builder
+FROM clux/muslrust:1.85.0 AS builder
 
 WORKDIR /app
 
-# Install musl toolchain & C++ dependencies (plus clang/lld for full toolchain)
+# Install extra build deps (if needed for crates like openssl)
 RUN apt-get update && \
-    apt-get install -y musl-tools musl-dev gcc g++ clang llvm lld pkg-config libssl-dev && \
+    apt-get install -y pkg-config libssl-dev && \
     rustup target add x86_64-unknown-linux-musl
-
-# Explicitly set compilers (no native musl-g++)
-ENV CC=musl-gcc
-ENV CXX=g++
-ENV CXXFLAGS="--sysroot=/usr/x86_64-linux-musl"
-
 
 # Copy source code
 COPY . .
