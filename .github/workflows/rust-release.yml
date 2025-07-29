@@ -50,7 +50,7 @@ jobs:
             bin: arycal
             target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            container: ubuntu:18.04
+            container: rust:1.85-bionic
             features: mpi
 
           # GUI: glibc (current 22.04)
@@ -64,7 +64,7 @@ jobs:
             bin: arycal-gui
             target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            container: ubuntu:18.04
+            container: rust:1.85-bionic
 
           # macOS + Windows
           - name: arycal-cli-macos
@@ -91,6 +91,7 @@ jobs:
         with:
           toolchain: 1.85.0
           override: true
+      - run: mkdir -p artifacts
 
       # Prepare cross for static musl build
       - name: Install cross
@@ -98,10 +99,9 @@ jobs:
         run: cargo install cross --git https://github.com/cross-rs/cross
 
       # ---- Build in container for compat targets ----
-      - name: Build in Ubuntu 18.04 container
+      - name: Build in Rust 1.85 Bionic container
         if: matrix.container
         run: |
-          mkdir -p artifacts
           docker run --rm -v $(pwd):/work -w /work ${{ matrix.container }} bash -c "
             apt-get update &&
             apt-get install -y build-essential pkg-config libssl-dev libx11-dev libxrandr-dev libxi-dev \
