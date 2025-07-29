@@ -26,23 +26,43 @@ jobs:
     strategy:
       matrix:
         include:
-          # CLI: musl (cargo + musl-gcc, no explicit target)
+          # CLI: musl (current)
           - name: arycal-x86_64-unknown-linux-musl
             bin: arycal
             os: ubuntu-latest
 
-          # MPI: glibc
+          # CLI: musl (fully static, cross)
+          - name: arycal-x86_64-unknown-linux-musl-static
+            bin: arycal
+            target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            cross: true
+
+          # MPI: glibc (newer)
           - name: arycal-x86_64-unknown-linux-gnu-mpi
             bin: arycal
             target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             features: mpi
 
-          # GUI: glibc dynamic
+          # MPI: glibc (older 18.04)
+          - name: arycal-x86_64-unknown-linux-gnu-mpi-compat
+            bin: arycal
+            target: x86_64-unknown-linux-gnu
+            os: ubuntu-18.04
+            features: mpi
+
+          # GUI: glibc (current 22.04)
           - name: arycal-gui-x86_64-unknown-linux-gnu
             bin: arycal-gui
             target: x86_64-unknown-linux-gnu
             os: ubuntu-22.04
+
+          # GUI: glibc (compat 18.04)
+          - name: arycal-gui-x86_64-unknown-linux-gnu-compat
+            bin: arycal-gui
+            target: x86_64-unknown-linux-gnu
+            os: ubuntu-18.04
 
           # macOS + Windows
           - name: arycal-x86_64-apple-darwin
@@ -70,7 +90,12 @@ jobs:
           toolchain: 1.85.0
           override: true
 
-      # CLI: musl, no explicit target (musl-gcc wrapper)
+      # Install cross for static musl build
+      - name: Install cross
+        if: matrix.cross == true
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      # CLI: musl (legacy cargo + musl-gcc)
       - name: Install musl-tools
         if: matrix.name == 'arycal-x86_64-unknown-linux-musl'
         run: sudo apt-get update && sudo apt-get install -y musl-tools
@@ -79,22 +104,27 @@ jobs:
         if: matrix.name == 'arycal-x86_64-unknown-linux-musl'
         run: CC=musl-gcc cargo build --release
 
+      # CLI: fully static musl
+      - name: Build Arycal (fully static musl)
+        if: matrix.name == 'arycal-x86_64-unknown-linux-musl-static'
+        run: cross build --release --target=${{ matrix.target }}
+
       # GUI: glibc (GTK + X11)
       - name: Install GUI dependencies
-        if: matrix.name == 'arycal-gui-x86_64-unknown-linux-gnu'
+        if: startsWith(matrix.name, 'arycal-gui-x86_64-unknown-linux-gnu')
         run: sudo apt-get update && sudo apt-get install -y libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev libegl1-mesa libgtk-3-dev
 
-      - name: Build Arycal-GUI (glibc)
-        if: matrix.name == 'arycal-gui-x86_64-unknown-linux-gnu'
+      - name: Build Arycal-GUI
+        if: startsWith(matrix.name, 'arycal-gui-x86_64-unknown-linux-gnu')
         run: cargo build --release --target=${{ matrix.target }}
 
       # MPI: glibc
       - name: Install MPI
-        if: matrix.name == 'arycal-x86_64-unknown-linux-gnu-mpi'
+        if: startsWith(matrix.name, 'arycal-x86_64-unknown-linux-gnu-mpi')
         run: sudo apt-get update && sudo apt-get install -y libopenmpi-dev openmpi-bin
 
       - name: Build Arycal (MPI)
-        if: matrix.name == 'arycal-x86_64-unknown-linux-gnu-mpi'
+        if: startsWith(matrix.name, 'arycal-x86_64-unknown-linux-gnu-mpi')
         run: cargo build --release --target=${{ matrix.target }} --features mpi
 
       # Non-Linux: just add targets & build
