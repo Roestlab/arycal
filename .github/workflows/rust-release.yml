@@ -125,8 +125,8 @@ jobs:
           cargo build --release --target=${{ matrix.target }} --features mpi
           cp target/${{ matrix.target }}/release/${{ matrix.bin }} artifacts/
 
-      # Non-Linux targets (Unix)
-      - name: Add non-Linux target
+      # Non-Linux targets (macOS)
+      - name: Add macOS target
         if: startsWith(matrix.target, 'x86_64-apple')
         run: rustup target add ${{ matrix.target }}
 
@@ -191,6 +191,7 @@ jobs:
       - name: Upload Compat Binary
         uses: taiki-e/upload-rust-binary-action@v1
         with:
+          bin: ${{ matrix.bin }}
           asset: artifacts/${{ matrix.bin }}
           build-tool: none
           archive: ${{ matrix.bin }}-${{ github.ref_name }}-${{ matrix.name }}
