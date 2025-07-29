@@ -50,7 +50,7 @@ jobs:
             bin: arycal
             target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            container: rust:1.85-bionic
+            container: ubuntu:18.04
             features: mpi
 
           # GUI: glibc (current 22.04)
@@ -64,7 +64,7 @@ jobs:
             bin: arycal-gui
             target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            container: rust:1.85-bionic
+            container: ubuntu:18.04
 
           # macOS + Windows
           - name: arycal-cli-macos
@@ -87,10 +87,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: 1.85.0
-          override: true
       - run: mkdir -p artifacts
 
       # Prepare cross for static musl build
@@ -99,18 +95,27 @@ jobs:
         run: cargo install cross --git https://github.com/cross-rs/cross
 
       # ---- Build in container for compat targets ----
-      - name: Build in Rust 1.85 Bionic container
+      - name: Build in Ubuntu 18.04 container (install Rust via rustup)
         if: matrix.container
         run: |
           docker run --rm -v $(pwd):/work -w /work ${{ matrix.container }} bash -c "
             apt-get update &&
-            apt-get install -y build-essential pkg-config libssl-dev libx11-dev libxrandr-dev libxi-dev \
+            apt-get install -y curl build-essential pkg-config libssl-dev libx11-dev libxrandr-dev libxi-dev \
                                libgl1-mesa-dev libegl1-mesa libgtk-3-dev musl-tools libopenmpi-dev openmpi-bin &&
+            curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain 1.85.0 &&
+            source \$HOME/.cargo/env &&
+            rustup target add ${{ matrix.target }} &&
             cargo build --release --target=${{ matrix.target }} $([[ '${{ matrix.features }}' != '' ]] && echo '--features ${{ matrix.features }}') &&
             cp target/${{ matrix.target }}/release/${{ matrix.bin }} artifacts/
           "
 
       # ---- Normal builds (non-compat) ----
+      - uses: actions-rs/toolchain@v1
+        if: matrix.container == null
+        with:
+          toolchain: 1.85.0
+          override: true
+
       - name: Install musl-tools
         if: matrix.name == 'arycal-cli-linux-musl'
         run: sudo apt-get update && sudo apt-get install -y musl-tools
