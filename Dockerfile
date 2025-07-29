@@ -3,10 +3,14 @@ FROM rust:1.85-slim AS builder
 
 WORKDIR /app
 
-# Install musl toolchain & C++ dependencies
+# Install musl toolchain & C++ dependencies (plus clang/lld for full toolchain)
 RUN apt-get update && \
-    apt-get install -y musl-tools musl-dev gcc g++ pkg-config libssl-dev && \
+    apt-get install -y musl-tools musl-dev gcc g++ clang llvm lld pkg-config libssl-dev && \
     rustup target add x86_64-unknown-linux-musl
+
+# Explicitly set musl compiler
+ENV CC=musl-gcc
+ENV CXX=musl-g++
 
 # Copy source code
 COPY . .
