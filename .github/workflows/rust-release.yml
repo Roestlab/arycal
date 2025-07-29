@@ -32,9 +32,9 @@ jobs:
             bin: arycal
             target: x86_64-unknown-linux-musl
             os: ubuntu-latest
-          - name: arycal-x86_64-unknown-linux-musl-mpi
+          - name: arycal-x86_64-unknown-linux-gnu-mpi
             bin: arycal
-            target: x86_64-unknown-linux-musl
+            target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             features: mpi
           - name: arycal-gui-x86_64-unknown-linux-musl
@@ -67,30 +67,37 @@ jobs:
           toolchain: 1.85.0
           override: true
 
+      # Install cross only for musl builds
       - name: Install cross for musl builds
         if: contains(matrix.target, 'musl')
         run: cargo install cross --git https://github.com/cross-rs/cross
+
+      # Install MPI for glibc MPI build
+      - name: Install MPI for glibc build
+        if: matrix.name == 'arycal-x86_64-unknown-linux-gnu-mpi'
+        run: sudo apt-get update && sudo apt-get install -y libopenmpi-dev openmpi-bin
 
       # Musl builds use cross
       - name: Build Arycal (Regular)
         if: matrix.name == 'arycal-x86_64-unknown-linux-musl'
         run: cross build --release --target=${{ matrix.target }}
 
-      - name: Build Arycal (with MPI)
-        if: matrix.name == 'arycal-x86_64-unknown-linux-musl-mpi'
-        run: cross build --release --target=${{ matrix.target }} --features mpi
-
       - name: Build Arycal-GUI
         if: matrix.name == 'arycal-gui-x86_64-unknown-linux-musl'
         run: cross build --release --target=${{ matrix.target }}
 
+      # Glibc MPI build uses plain cargo
+      - name: Build Arycal (with MPI, glibc)
+        if: matrix.name == 'arycal-x86_64-unknown-linux-gnu-mpi'
+        run: cargo build --release --target=${{ matrix.target }} --features mpi
+
       # Non-musl builds: ensure target is installed
       - name: Add target for non-musl builds
-        if: contains(matrix.target, 'musl') == false
+        if: contains(matrix.target, 'musl') == false && matrix.name != 'arycal-x86_64-unknown-linux-gnu-mpi'
         run: rustup target add ${{ matrix.target }}
 
       - name: Build Non-Musl Targets
-        if: contains(matrix.target, 'musl') == false
+        if: contains(matrix.target, 'musl') == false && matrix.name != 'arycal-x86_64-unknown-linux-gnu-mpi'
         run: cargo build --release --target=${{ matrix.target }}
 
       - name: Upload Release Binary
