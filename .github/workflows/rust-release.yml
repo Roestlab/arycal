@@ -45,14 +45,6 @@ jobs:
             os: ubuntu-latest
             features: mpi
 
-          # CLI: glibc (older 18.04 compat)
-          - name: arycal-cli-linux-gnu-mpi-compat
-            bin: arycal
-            target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-            container: ubuntu:18.04
-            features: mpi
-
           # GUI: glibc (current 22.04)
           - name: arycal-gui-linux-gnu
             bin: arycal-gui
@@ -101,11 +93,11 @@ jobs:
           docker run --rm -v $(pwd):/work -w /work ${{ matrix.container }} bash -c "
             apt-get update &&
             apt-get install -y curl build-essential pkg-config libssl-dev libx11-dev libxrandr-dev libxi-dev \
-                               libgl1-mesa-dev libegl1-mesa libgtk-3-dev musl-tools libopenmpi-dev openmpi-bin &&
+                               libgl1-mesa-dev libegl1-mesa libgtk-3-dev musl-tools &&
             curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain 1.85.0 &&
             source \$HOME/.cargo/env &&
             rustup target add ${{ matrix.target }} &&
-            cargo build --release --target=${{ matrix.target }} $([[ '${{ matrix.features }}' != '' ]] && echo '--features ${{ matrix.features }}') &&
+            cargo build --release --target=${{ matrix.target }} &&
             cp target/${{ matrix.target }}/release/${{ matrix.bin }} artifacts/
           "
 
