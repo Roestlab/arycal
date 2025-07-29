@@ -84,7 +84,11 @@ jobs:
         if: matrix.name == 'arycal-gui-x86_64-unknown-linux-musl'
         run: cross build --release --target=${{ matrix.target }}
 
-      # Non-musl builds still use normal cargo
+      # Non-musl builds: ensure target is installed
+      - name: Add target for non-musl builds
+        if: contains(matrix.target, 'musl') == false
+        run: rustup target add ${{ matrix.target }}
+
       - name: Build Non-Musl Targets
         if: contains(matrix.target, 'musl') == false
         run: cargo build --release --target=${{ matrix.target }}

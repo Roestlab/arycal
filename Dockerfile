@@ -1,18 +1,20 @@
-# Stage 1: Build binaries with cross
+# Stage 1: Build binaries with musl toolchain
 FROM rust:1.85-slim AS builder
 
 WORKDIR /app
 
-# Install cross (prebuilt Docker images handle musl + C++ toolchains)
-RUN cargo install cross --git https://github.com/cross-rs/cross
+# Install musl toolchain & C++ dependencies
+RUN apt-get update && \
+    apt-get install -y musl-tools musl-dev gcc g++ pkg-config libssl-dev && \
+    rustup target add x86_64-unknown-linux-musl
 
 # Copy source code
 COPY . .
 
-# Build optimized & stripped binaries using cross
+# Build optimized & stripped binaries
 ENV RUSTFLAGS="-C strip=symbols -C lto=yes"
-RUN cross build --release --target x86_64-unknown-linux-musl --bin arycal
-RUN cross build --release --target x86_64-unknown-linux-musl --bin arycal-gui
+RUN cargo build --release --target x86_64-unknown-linux-musl --bin arycal
+RUN cargo build --release --target x86_64-unknown-linux-musl --bin arycal-gui
 
 # Stage 2: Minimal runtime image
 FROM debian:bullseye-slim
