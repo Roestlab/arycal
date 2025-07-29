@@ -3,10 +3,14 @@ FROM clux/muslrust:1.85.1-stable AS builder
 
 WORKDIR /app
 
-# Install extra build deps (if needed for crates like openssl)
+# Install extra build deps (C++ cross-compiler + pkg-config + OpenSSL)
 RUN apt-get update && \
-    apt-get install -y pkg-config libssl-dev && \
+    apt-get install -y pkg-config libssl-dev g++-x86-64-linux-musl && \
     rustup target add x86_64-unknown-linux-musl
+
+# Set compilers explicitly
+ENV CC=musl-gcc
+ENV CXX=x86_64-linux-musl-g++
 
 # Copy source code
 COPY . .
