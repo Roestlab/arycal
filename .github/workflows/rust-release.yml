@@ -75,7 +75,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: mkdir -p artifacts
 
-      # cross for fully-static musl
+      # cross for the fully-static musl build
       - name: Install cross
         if: matrix.cross == true
         run: cargo install cross --git https://github.com/cross-rs/cross
@@ -92,12 +92,16 @@ jobs:
 
       - name: Build CLI (musl)
         if: matrix.name == 'arycal-cli-linux-musl'
-        run: CC=musl-gcc cargo build --release && cp target/release/${{ matrix.bin }} artifacts/
+        run: |
+          CC=musl-gcc cargo build --release
+          cp target/release/${{ matrix.bin }} artifacts/
 
       # musl static
       - name: Build CLI (musl-static)
         if: matrix.name == 'arycal-cli-linux-musl-static'
-        run: cross build --release --target=${{ matrix.target }} && cp target/${{ matrix.target }}/release/${{ matrix.bin }} artifacts/
+        run: |
+          cross build --release --target=${{ matrix.target }}
+          cp target/${{ matrix.target }}/release/${{ matrix.bin }} artifacts/
 
       # GUI glibc
       - name: Install GUI deps
@@ -106,7 +110,9 @@ jobs:
 
       - name: Build GUI (glibc)
         if: matrix.name == 'arycal-gui-linux-gnu'
-        run: cargo build --release --target=${{ matrix.target }} && cp target/${{ matrix.target }}/release/${{ matrix.bin }} artifacts/
+        run: |
+          cargo build --release --target=${{ matrix.target }}
+          cp target/${{ matrix.target }}/release/${{ matrix.bin }} artifacts/
 
       # MPI glibc
       - name: Install MPI
@@ -115,16 +121,27 @@ jobs:
 
       - name: Build CLI (MPI)
         if: matrix.name == 'arycal-cli-linux-gnu-mpi'
-        run: cargo build --release --target=${{ matrix.target }} --features mpi && cp target/${{ matrix.target }}/release/${{ matrix.bin }} artifacts/
+        run: |
+          cargo build --release --target=${{ matrix.target }} --features mpi
+          cp target/${{ matrix.target }}/release/${{ matrix.bin }} artifacts/
 
-      # Non-Linux
+      # Non-Linux targets (Unix)
       - name: Add non-Linux target
-        if: startsWith(matrix.target, 'x86_64-apple') || startsWith(matrix.target, 'x86_64-pc')
+        if: startsWith(matrix.target, 'x86_64-apple')
         run: rustup target add ${{ matrix.target }}
 
-      - name: Build non-Linux
-        if: startsWith(matrix.target, 'x86_64-apple') || startsWith(matrix.target, 'x86_64-pc')
-        run: cargo build --release --target=${{ matrix.target }} && cp target/${{ matrix.target }}/release/${{ matrix.bin }} artifacts/
+      - name: Build non-Linux (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          cargo build --release --target=${{ matrix.target }}
+          cp target/${{ matrix.target }}/release/${{ matrix.bin }} artifacts/
+
+      # Non-Linux targets (Windows)
+      - name: Build non-Linux (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          cargo build --release --target=${{ matrix.target }}
+          cp target/${{ matrix.target }}/release/${{ matrix.bin }}.exe artifacts/
 
       - name: Upload Release Binary
         uses: taiki-e/upload-rust-binary-action@v1
@@ -137,7 +154,7 @@ jobs:
           zip: windows
           token: ${{ secrets.GITHUB_TOKEN }}
 
-  # ----------- Compat Builds (Ubuntu 18.04 container) -----------
+  # ----------- Compat Build (Ubuntu 18.04 container) -----------
   upload-assets-compat:
     needs: create-release
     strategy:
@@ -167,15 +184,16 @@ jobs:
               source \$HOME/.cargo/env &&
               rustup target add ${{ matrix.target }} &&
               cargo build --release --target=${{ matrix.target }} &&
-              cp target/${{ matrix.target }}/release/${{ matrix.bin }} artifacts/
+              cp target/${{ matrix.target }}/release/${{ matrix.bin }} artifacts/ &&
+              chown $(id -u):$(id -g) artifacts/${{ matrix.bin }}
             "
 
       - name: Upload Compat Binary
         uses: taiki-e/upload-rust-binary-action@v1
         with:
-          bin: ${{ matrix.bin }}
+          asset: artifacts/${{ matrix.bin }}
+          build-tool: none
           archive: ${{ matrix.bin }}-${{ github.ref_name }}-${{ matrix.name }}
-          target: ${{ matrix.target }}
           include: LICENSE,README.md
           tar: unix
           zip: windows
