@@ -193,7 +193,6 @@ jobs:
         with:
           bin: ${{ matrix.bin }}
           asset: artifacts/${{ matrix.bin }}
-          build-tool: none
           archive: ${{ matrix.bin }}-${{ github.ref_name }}-${{ matrix.name }}
           include: LICENSE,README.md
           tar: unix
