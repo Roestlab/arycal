@@ -2,7 +2,11 @@
 FROM rust:1.85-slim AS builder
 
 WORKDIR /app
-RUN apt-get update && apt-get install -y musl-tools pkg-config libssl-dev && rustup target add x86_64-unknown-linux-musl
+
+# Install musl toolchain + C++ support
+RUN apt-get update && \
+    apt-get install -y musl-tools g++-musl pkg-config libssl-dev && \
+    rustup target add x86_64-unknown-linux-musl
 
 # Copy source
 COPY . .
@@ -21,7 +25,6 @@ RUN apt-get update && \
     rm -rf /var/lib/apt /var/lib/dpkg /var/lib/cache /var/lib/log
 
 WORKDIR /app
-
 COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/arycal /app/arycal
 COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/arycal-gui /app/arycal-gui
 
