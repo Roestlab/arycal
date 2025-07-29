@@ -1,3 +1,18 @@
+# Stage 1: Build binaries
+FROM rust:1.85-slim AS builder
+
+WORKDIR /app
+RUN apt-get update && apt-get install -y musl-tools pkg-config libssl-dev && rustup target add x86_64-unknown-linux-musl
+
+# Copy source
+COPY . .
+
+# Build optimized + stripped
+ENV RUSTFLAGS="-C strip=symbols -C lto=yes"
+RUN cargo build --release --target x86_64-unknown-linux-musl --bin arycal
+RUN cargo build --release --target x86_64-unknown-linux-musl --bin arycal-gui
+
+# Stage 2: Runtime image
 FROM debian:bullseye-slim
 
 RUN apt-get update && \
@@ -7,8 +22,7 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-COPY target/x86_64-unknown-linux-gnu/release/arycal /app/arycal
-
-COPY target/x86_64-unknown-linux-gnu/release/arycal-gui /app/arycal-gui
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/arycal /app/arycal
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/arycal-gui /app/arycal-gui
 
 ENV PATH="/app:$PATH"
