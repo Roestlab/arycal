@@ -26,22 +26,24 @@ jobs:
     strategy:
       matrix:
         include:
-          # CLI: musl static
+          # CLI: musl (cargo + musl-gcc, no explicit target)
           - name: arycal-x86_64-unknown-linux-musl
             bin: arycal
-            target: x86_64-unknown-linux-musl
             os: ubuntu-latest
+
           # MPI: glibc
           - name: arycal-x86_64-unknown-linux-gnu-mpi
             bin: arycal
             target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             features: mpi
-          # GUI: glibc (dynamic, X11/GTK)
+
+          # GUI: glibc dynamic
           - name: arycal-gui-x86_64-unknown-linux-gnu
             bin: arycal-gui
             target: x86_64-unknown-linux-gnu
             os: ubuntu-22.04
+
           # macOS + Windows
           - name: arycal-x86_64-apple-darwin
             bin: arycal
@@ -68,14 +70,14 @@ jobs:
           toolchain: 1.85.0
           override: true
 
-      # CLI: musl (plain cargo)
+      # CLI: musl, no explicit target (musl-gcc wrapper)
       - name: Install musl-tools
         if: matrix.name == 'arycal-x86_64-unknown-linux-musl'
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       - name: Build Arycal (musl)
         if: matrix.name == 'arycal-x86_64-unknown-linux-musl'
-        run: cargo build --release --target=${{ matrix.target }}
+        run: CC=musl-gcc cargo build --release
 
       # GUI: glibc (GTK + X11)
       - name: Install GUI dependencies
@@ -109,7 +111,7 @@ jobs:
         with:
           bin: ${{ matrix.bin }}
           archive: ${{ matrix.bin }}-${{ github.ref_name }}-${{ matrix.name }}
-          target: ${{ matrix.target }}
+          target: ${{ matrix.target || '' }}
           include: LICENSE,README.md
           tar: unix
           zip: windows
