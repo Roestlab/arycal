@@ -11,12 +11,19 @@ on:
 jobs:
   create-release:
     runs-on: ubuntu-latest
+    # Export the upload_url from the release creation step
     outputs:
       upload_url: ${{ steps.create_steps.outputs.upload_url }}
     steps:
       - uses: actions/checkout@v4
-      - uses: taiki-e/create-gh-release-action@v1
-        id: create_steps
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: 1.85.0
+          override: true
+
+      - id: create_steps
+        uses: taiki-e/create-gh-release-action@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -35,6 +42,7 @@ jobs:
               sudo apt-get update && sudo apt-get install -y musl-tools
               CC=musl-gcc cargo build --release
               cp target/release/arycal artifacts/arycal-cli
+
           # CLI: fully static musl via cross
           - name: arycal-cli-linux-musl-static
             bin: arycal
@@ -44,6 +52,7 @@ jobs:
               cargo install cross --git https://github.com/cross-rs/cross
               cross build --release --target=x86_64-unknown-linux-musl
               cp target/x86_64-unknown-linux-musl/release/arycal artifacts/arycal-cli
+
           # CLI: glibc + MPI
           - name: arycal-cli-linux-gnu-mpi
             bin: arycal
@@ -53,6 +62,7 @@ jobs:
               sudo apt-get update && sudo apt-get install -y libopenmpi-dev openmpi-bin
               cargo build --release --target=x86_64-unknown-linux-gnu --features mpi
               cp target/x86_64-unknown-linux-gnu/release/arycal artifacts/arycal-cli
+
           # GUI: glibc on 22.04
           - name: arycal-gui-linux-gnu
             bin: arycal-gui
@@ -63,6 +73,7 @@ jobs:
                 libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev libegl1-mesa libgtk-3-dev
               cargo build --release --target=x86_64-unknown-linux-gnu
               cp target/x86_64-unknown-linux-gnu/release/arycal-gui artifacts/arycal-gui
+
           # macOS + Windows
           - name: arycal-cli-macos
             bin: arycal
@@ -72,6 +83,7 @@ jobs:
               rustup target add x86_64-apple-darwin
               cargo build --release --target=x86_64-apple-darwin
               cp target/x86_64-apple-darwin/release/arycal artifacts/arycal-cli
+
           - name: arycal-gui-macos
             bin: arycal-gui
             target: x86_64-apple-darwin
@@ -80,6 +92,7 @@ jobs:
               rustup target add x86_64-apple-darwin
               cargo build --release --target=x86_64-apple-darwin
               cp target/x86_64-apple-darwin/release/arycal-gui artifacts/arycal-gui
+
           - name: arycal-cli-windows
             bin: arycal
             target: x86_64-pc-windows-msvc
@@ -88,6 +101,7 @@ jobs:
               rustup target add x86_64-pc-windows-msvc
               cargo build --release --target=x86_64-pc-windows-msvc
               cp target/x86_64-pc-windows-msvc/release/arycal.exe artifacts/arycal-cli.exe
+
           - name: arycal-gui-windows
             bin: arycal-gui
             target: x86_64-pc-windows-msvc
@@ -127,13 +141,13 @@ jobs:
       - name: Upload Release Binary
         uses: taiki-e/upload-rust-binary-action@v1
         with:
-          bin:        ${{ matrix.bin }}
-          archive:    ${{ matrix.bin }}-${{ github.ref_name }}-${{ matrix.name }}
-          target:     ${{ matrix.target || '' }}
-          include:    LICENSE,README.md
-          tar:        unix
-          zip:        windows
-          token:      ${{ secrets.GITHUB_TOKEN }}
+          bin:     ${{ matrix.bin }}
+          archive: ${{ matrix.bin }}-${{ github.ref_name }}-${{ matrix.name }}
+          target:  ${{ matrix.target || '' }}
+          include: LICENSE,README.md
+          tar:     unix
+          zip:     windows
+          token:   ${{ secrets.GITHUB_TOKEN }}
 
   # ----------- Compat Build (18.04 container) -----------
   upload-assets-compat:
@@ -172,10 +186,10 @@ jobs:
           tar -czf artifacts/${{ matrix.bin }}-${{ github.ref_name }}-${{ matrix.name }}.tar.gz \
             -C artifacts ${{ matrix.bin }}
 
-      - name: Upload compat binary
+      - name: Upload Compat Binary
         uses: actions/upload-release-asset@v1
         with:
-          upload_url:        ${{ needs.create-release.outputs.upload_url }}
-          asset_path:        artifacts/${{ matrix.bin }}-${{ github.ref_name }}-${{ matrix.name }}.tar.gz
-          asset_name:        ${{ matrix.bin }}-${{ github.ref_name }}-${{ matrix.name }}.tar.gz
+          upload_url:         ${{ needs.create-release.outputs.upload_url }}
+          asset_path:         artifacts/${{ matrix.bin }}-${{ github.ref_name }}-${{ matrix.name }}.tar.gz
+          asset_name:         ${{ matrix.bin }}-${{ github.ref_name }}-${{ matrix.name }}.tar.gz
           asset_content_type: application/gzip
