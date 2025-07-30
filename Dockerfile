@@ -21,18 +21,15 @@ ENV CC=musl-gcc
 ENV CXX=clang++
 ENV CXXFLAGS="--target=x86_64-linux-musl --sysroot=/usr/x86_64-linux-musl"
 
-# 3. Copy only your workspace manifests first (to get a cached layer of fetched dependencies)
+# 3. Copy just the workspace Cargo.toml & Cargo.lock (for cache invalidation),
+#    and then the entire crates/ directory so that cargo can see each crate’s src/
 COPY Cargo.toml ./
-COPY crates/arycal/Cargo.toml          crates/arycal/Cargo.toml
-COPY crates/arycal-cli/Cargo.toml      crates/arycal-cli/Cargo.toml
-COPY crates/arycal-cloudpath/Cargo.toml crates/arycal-cloudpath/Cargo.toml
-COPY crates/arycal-common/Cargo.toml   crates/arycal-common/Cargo.toml
-COPY crates/arycal-gui/Cargo.toml      crates/arycal-gui/Cargo.toml
+COPY crates/ ./crates/
 
-# 4. Fetch all dependency crates for the MUSL target (caches on changes to any Cargo.toml/Cargo.lock above)
+# 4. Pre-fetch all dependencies for the MUSL target
 RUN cargo fetch --target x86_64-unknown-linux-musl
 
-# 5. Now copy the rest of your source code
+# 5. Now copy the rest of your source (examples, scripts, README, etc.)
 COPY . .
 
 # 6. Build your two binaries with optimizations & stripping
@@ -52,7 +49,7 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-# Copy in the statically-built binaries
+# Copy in the two static binaries
 COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/arycal    /app/arycal
 COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/arycal-gui /app/arycal-gui
 
