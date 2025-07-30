@@ -145,8 +145,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: "Debug: print upload_url"
-        run: echo "→ upload_url: ${{ needs.create_release.outputs.upload_url }}"
+      - name: Debug print upload URL
+        run: |
+          echo "upload_url: ${{ needs.create_release.outputs.upload_url }}"
 
       - name: Build & package in Ubuntu 18.04
         run: |
