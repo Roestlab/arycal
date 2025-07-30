@@ -3,14 +3,19 @@ FROM clux/muslrust:1.85.1-stable AS builder
 
 WORKDIR /app
 
-# Install extra build deps (C++ cross-compiler + pkg-config + OpenSSL)
+# Install extra build deps (C++ cross-compiler via musl-tools + pkg-config + OpenSSL)
 RUN apt-get update && \
-    apt-get install -y pkg-config libssl-dev g++-x86-64-linux-musl && \
-    rustup target add x86_64-unknown-linux-musl
+    apt-get install -y --no-install-recommends \
+      pkg-config \
+      libssl-dev \
+      musl-tools \
+      build-essential && \
+    rustup target add x86_64-unknown-linux-musl && \
+    rm -rf /var/lib/apt/lists/*
 
-# Set compilers explicitly
+# Tell cargo to use the musl wrappers
 ENV CC=musl-gcc
-ENV CXX=x86_64-linux-musl-g++
+ENV CXX=musl-g++
 
 # Copy source code
 COPY . .
@@ -24,9 +29,11 @@ RUN cargo build --release --target x86_64-unknown-linux-musl --bin arycal-gui
 FROM debian:bullseye-slim
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends procps ca-certificates && \
+    apt-get install -y --no-install-recommends \
+      procps \
+      ca-certificates && \
     update-ca-certificates && \
-    rm -rf /var/lib/apt /var/lib/dpkg /var/lib/cache /var/lib/log
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/arycal /app/arycal
