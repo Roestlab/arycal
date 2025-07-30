@@ -1,23 +1,41 @@
 # Stage 1: Build binaries with musl toolchain
-FROM clux/muslrust:1.85.1-stable AS builder
+FROM rust:1.85-slim AS builder
 
 WORKDIR /app
 
-# Install extra build deps (C++ cross-compiler via musl-tools + pkg-config + OpenSSL)
+# 1. Install musl headers & tools, clang for C++, pkg-config & OpenSSL dev
+# 2. Add the x86_64‐unknown‐linux‐musl Rust target
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-      pkg-config \
-      libssl-dev \
+      build-essential \
       musl-tools \
-      build-essential && \
+      musl-dev \
+      clang \
+      lld \
+      pkg-config \
+      libssl-dev && \
     rustup target add x86_64-unknown-linux-musl && \
     rm -rf /var/lib/apt/lists/*
 
-# Tell cargo to use the musl wrappers
+# 3. Tell cargo/cc-rs to use musl-gcc for C, clang++ for C++ (with the musl sysroot)
 ENV CC=musl-gcc
-ENV CXX=musl-g++
+ENV CXX=clang++
+ENV CXXFLAGS="--target=x86_64-linux-musl --sysroot=/usr/x86_64-linux-musl"
 
-# Copy source code
+# Copy your Cargo files first (for caching)
+COPY Cargo.toml Cargo.lock ./
+COPY arycal/Cargo.toml arycal/
+COPY arycal-gui/Cargo.toml arycal-gui/
+
+# Fetch deps
+RUN mkdir arycal/src && \
+    echo "fn main() {}" > arycal/src/main.rs && \
+    mkdir arycal-gui/src && \
+    echo "fn main() {}" > arycal-gui/src/main.rs && \
+    cargo build --release --target x86_64-unknown-linux-musl && \
+    rm -rf target/x86_64-unknown-linux-musl/release/deps/*
+
+# Now copy your real source
 COPY . .
 
 # Build optimized & stripped binaries
@@ -36,7 +54,8 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/arycal /app/arycal
+
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/arycal    /app/arycal
 COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/arycal-gui /app/arycal-gui
 
 ENV PATH="/app:$PATH"
