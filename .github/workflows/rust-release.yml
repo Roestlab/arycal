@@ -9,21 +9,20 @@ on:
       - 'v[0-9]+.*'
 
 jobs:
-  # 1) Create the GitHub Release and capture its upload_url
+  # 1) Create the GitHub release and capture its upload_url
   create_release:
     name: Create Release
     runs-on: ubuntu-latest
     outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      upload_url: ${{ steps.create.outputs.upload_url }}
     steps:
       - uses: actions/checkout@v4
-
-      - id: create_release
+      - id: create
         uses: taiki-e/create-gh-release-action@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-  # 2) Fast normal builds in parallel, uploading with taiki-e/upload-rust-binary-action
+  # 2) Fast normal builds in parallel
   upload_assets:
     name: Build & Upload Binaries
     needs: create_release
@@ -138,13 +137,16 @@ jobs:
           zip:        windows
           token:      ${{ secrets.GITHUB_TOKEN }}
 
-  # 3) Slow compat build inside Ubuntu 18.04, then attach with the official upload-release-asset
+  # 3) Compat GUI build inside Ubuntu 18.04, then attach via upload-release-asset
   upload_assets_compat:
     name: Compat GUI Build (Ubuntu 18.04)
     needs: create_release
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Debug: print upload_url
+        run: echo "→ upload_url: ${{ needs.create_release.outputs.upload_url }}"
 
       - name: Build & package in Ubuntu 18.04
         run: |
