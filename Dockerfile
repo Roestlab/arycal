@@ -3,24 +3,31 @@ FROM clux/muslrust:1.85.1-stable AS builder
 
 WORKDIR /app
 
-# 1. Only install pkg-config & OpenSSL headers (musl-g++ is already present)
+# Install only pkg-config & OpenSSL headers (musl-g++ is already bundled)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       pkg-config \
       libssl-dev && \
     rm -rf /var/lib/apt/lists/*
 
-# 2. Copy workspace manifests and the crates/ folder for caching
-COPY Cargo.toml ./
+# **Ensure cargo’s cc-rs finds a C++ compiler**
+ENV CC=musl-gcc
+ENV CXX=musl-g++
+
+# (Optional fallback symlink in case cc-rs still probes by target triple)
+RUN ln -sf "$(which musl-g++)" /usr/local/bin/x86_64-unknown-linux-musl-g++
+
+# Copy just the workspace manifest and crate directories, so `cargo fetch` can use the cache
+COPY Cargo.toml Cargo.lock ./
 COPY crates/ ./crates/
 
-# 3. Pre-fetch everything for the MUSL target
+# Pre-fetch deps for the MUSL target
 RUN cargo fetch --target x86_64-unknown-linux-musl
 
-# 4. Copy the rest of your source (including each crate’s src/)
+# Now copy in the rest of the source (including each crate’s src/)
 COPY . .
 
-# 5. Build optimized & stripped binaries
+# Build optimized & stripped binaries
 ENV RUSTFLAGS="-C strip=symbols -C lto=yes"
 RUN cargo build --release --target x86_64-unknown-linux-musl --bin arycal
 RUN cargo build --release --target x86_64-unknown-linux-musl --bin arycal-gui
