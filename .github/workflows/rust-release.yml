@@ -9,20 +9,18 @@ on:
       - 'v[0-9]+.*'
 
 jobs:
-  # 1) Create the GitHub release and capture its upload_url
+  # 1) Create the GitHub release
   create_release:
     name: Create Release
     runs-on: ubuntu-latest
-    outputs:
-      upload_url: ${{ steps.create.outputs.upload_url }}
     steps:
       - uses: actions/checkout@v4
-      - id: create
-        uses: taiki-e/create-gh-release-action@v1
+      - uses: taiki-e/create-gh-release-action@v1
+        id: create
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-  # 2) Fast normal builds in parallel
+  # 2) Fast normal builds in parallel, using upload-rust-binary-action
   upload_assets:
     name: Build & Upload Binaries
     needs: create_release
@@ -30,6 +28,7 @@ jobs:
     strategy:
       matrix:
         include:
+          # CLI: dynamic musl via musl-gcc
           - name: arycal-cli-linux-musl
             bin: arycal
             os: ubuntu-latest
@@ -38,6 +37,7 @@ jobs:
               CC=musl-gcc cargo build --release
               cp target/release/arycal artifacts/arycal-cli
 
+          # CLI: fully static musl via cross
           - name: arycal-cli-linux-musl-static
             bin: arycal
             target: x86_64-unknown-linux-musl
@@ -47,6 +47,7 @@ jobs:
               cross build --release --target=x86_64-unknown-linux-musl
               cp target/x86_64-unknown-linux-musl/release/arycal artifacts/arycal-cli
 
+          # CLI: glibc + MPI
           - name: arycal-cli-linux-gnu-mpi
             bin: arycal
             target: x86_64-unknown-linux-gnu
@@ -56,6 +57,7 @@ jobs:
               cargo build --release --target=x86_64-unknown-linux-gnu --features mpi
               cp target/x86_64-unknown-linux-gnu/release/arycal artifacts/arycal-cli
 
+          # GUI: glibc on Ubuntu 22.04
           - name: arycal-gui-linux-gnu
             bin: arycal-gui
             target: x86_64-unknown-linux-gnu
@@ -66,6 +68,7 @@ jobs:
               cargo build --release --target=x86_64-unknown-linux-gnu
               cp target/x86_64-unknown-linux-gnu/release/arycal-gui artifacts/arycal-gui
 
+          # macOS + Windows
           - name: arycal-cli-macos
             bin: arycal
             target: x86_64-apple-darwin
@@ -115,7 +118,8 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-${{ matrix.name }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-${{ matrix.name }}-
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.name }}-
 
       - name: Set up Rust
         uses: actions-rs/toolchain@v1
@@ -129,25 +133,21 @@ jobs:
       - name: Upload Binaries
         uses: taiki-e/upload-rust-binary-action@v1
         with:
-          bin:        ${{ matrix.bin }}
-          archive:    ${{ matrix.bin }}-${{ github.ref_name }}-${{ matrix.name }}
-          target:     ${{ matrix.target || '' }}
-          include:    LICENSE,README.md
-          tar:        unix
-          zip:        windows
-          token:      ${{ secrets.GITHUB_TOKEN }}
+          bin:     ${{ matrix.bin }}
+          archive: ${{ matrix.bin }}-${{ github.ref_name }}-${{ matrix.name }}
+          target:  ${{ matrix.target || '' }}
+          include: LICENSE,README.md
+          tar:     unix
+          zip:     windows
+          token:   ${{ secrets.GITHUB_TOKEN }}
 
-  # 3) Compat GUI build inside Ubuntu 18.04, then attach via upload-release-asset
+  # 3) Compat GUI build inside Ubuntu 18.04 & upload via GH CLI
   upload_assets_compat:
     name: Compat GUI Build (Ubuntu 18.04)
     needs: create_release
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Debug print upload URL
-        run: |
-          echo "upload_url: ${{ needs.create_release.outputs.upload_url }}"
 
       - name: Build & package in Ubuntu 18.04
         run: |
@@ -165,10 +165,9 @@ jobs:
                 -C target/x86_64-unknown-linux-gnu/release arycal-gui
             "
 
-      - name: Upload compat binary
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url:         ${{ needs.create_release.outputs.upload_url }}
-          asset_path:         arycal-gui-${{ github.ref_name }}-compat.tar.gz
-          asset_name:         arycal-gui-${{ github.ref_name }}-compat.tar.gz
-          asset_content_type: application/gzip
+      - name: Upload Compat Binary via GH CLI
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GITHUB_TOKEN" | gh auth login --with-token
+          gh release upload ${{ github.ref_name }} arycal-gui-${{ github.ref_name }}-compat.tar.gz
