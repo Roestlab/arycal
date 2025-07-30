@@ -22,7 +22,7 @@ ENV CXX=clang++
 ENV CXXFLAGS="--target=x86_64-linux-musl --sysroot=/usr/x86_64-linux-musl"
 
 # 3. Copy only your workspace manifests first (to get a cached layer of fetched dependencies)
-COPY Cargo.toml Cargo.lock ./
+COPY Cargo.toml ./
 COPY crates/arycal/Cargo.toml          crates/arycal/Cargo.toml
 COPY crates/arycal-cli/Cargo.toml      crates/arycal-cli/Cargo.toml
 COPY crates/arycal-cloudpath/Cargo.toml crates/arycal-cloudpath/Cargo.toml
