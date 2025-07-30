@@ -18,7 +18,7 @@ ENV CXX=musl-g++
 RUN ln -sf "$(which musl-g++)" /usr/local/bin/x86_64-unknown-linux-musl-g++
 
 # Copy just the workspace manifest and crate directories, so `cargo fetch` can use the cache
-COPY Cargo.toml Cargo.lock ./
+COPY Cargo.toml ./
 COPY crates/ ./crates/
 
 # Pre-fetch deps for the MUSL target
