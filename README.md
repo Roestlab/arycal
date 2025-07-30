@@ -43,15 +43,15 @@
 
 ### Precompiled Binaries
 
-[![Download CLI | macOS](https://img.shields.io/static/v1?label=Download%20CLI&message=macOS&color=blue)](https://github.com/singjc/arycal/releases/download/v0.2.0-alpha/arycal-v0.2.0-alpha-arycal-cli-macos.tar.gz)  
-[![Download CLI | Windows](https://img.shields.io/static/v1?label=Download%20CLI&message=Windows&color=blue)](https://github.com/singjc/arycal/releases/download/v0.2.0-alpha/arycal-v0.2.0-alpha-arycal-cli-windows.zip)  
-[![Download CLI | Linux (musl)](https://img.shields.io/static/v1?label=Download%20CLI&message=Linux%20%28musl%29&color=blue)](https://github.com/singjc/arycal/releases/download/v0.2.0-alpha/arycal-v0.2.0-alpha-arycal-cli-linux-musl.tar.gz)  
-[![Download CLI | Linux (musl‐static)](https://img.shields.io/static/v1?label=Download%20CLI&message=Linux%20%28musl-static%29&color=blue)](https://github.com/singjc/arycal/releases/download/v0.2.0-alpha/arycal-v0.2.0-alpha-arycal-cli-linux-musl-static.tar.gz)  
-[![Download CLI | Linux (glibc + MPI)](https://img.shields.io/static/v1?label=Download%20CLI&message=Linux%20%28glibc+MPI%29&color=blue)](https://github.com/singjc/arycal/releases/download/v0.2.0-alpha/arycal-v0.2.0-alpha-arycal-cli-linux-gnu-mpi.tar.gz)  
+[![Download CLI | macOS](https://img.shields.io/static/v1?label=Download%20CLI&message=macOS&color=blue)](https://github.com/singjc/arycal/releases/download/v0.2.0-alpha/arycal-v0.2.0-alpha-arycal-cli-macos.tar.gz)
+[![Download CLI | Windows](https://img.shields.io/static/v1?label=Download%20CLI&message=Windows&color=blue)](https://github.com/singjc/arycal/releases/download/v0.2.0-alpha/arycal-v0.2.0-alpha-arycal-cli-windows.zip)
+[![Download CLI | Linux (musl)](https://img.shields.io/static/v1?label=Download%20CLI&message=Linux%20%28musl%29&color=blue)](https://github.com/singjc/arycal/releases/download/v0.2.0-alpha/arycal-v0.2.0-alpha-arycal-cli-linux-musl.tar.gz)
+[![Download CLI | Linux (musl‐static)](https://img.shields.io/static/v1?label=Download%20CLI&message=Linux%20%28musl-static%29&color=blue)](https://github.com/singjc/arycal/releases/download/v0.2.0-alpha/arycal-v0.2.0-alpha-arycal-cli-linux-musl-static.tar.gz)
+[![Download CLI | Linux (glibc + MPI)](https://img.shields.io/static/v1?label=Download%20CLI&message=Linux%20%28glibc+MPI%29&color=blue)](https://github.com/singjc/arycal/releases/download/v0.2.0-alpha/arycal-v0.2.0-alpha-arycal-cli-linux-gnu-mpi.tar.gz)
 
-[![Download GUI | macOS](https://img.shields.io/static/v1?label=Download%20GUI&message=macOS&color=brightgreen)](https://github.com/singjc/arycal/releases/download/v0.2.0-alpha/arycal-gui-v0.2.0-alpha-arycal-gui-macos.tar.gz)  
-[![Download GUI | Windows](https://img.shields.io/static/v1?label=Download%20GUI&message=Windows&color=brightgreen)](https://github.com/singjc/arycal/releases/download/v0.2.0-alpha/arycal-gui-v0.2.0-alpha-arycal-gui-windows.zip)  
-[![Download GUI | Linux (glibc)](https://img.shields.io/static/v1?label=Download%20GUI&message=Linux%20%28glibc%29&color=brightgreen)](https://github.com/singjc/arycal/releases/download/v0.2.0-alpha/arycal-gui-v0.2.0-alpha-arycal-gui-linux-gnu.tar.gz)  
+[![Download GUI | macOS](https://img.shields.io/static/v1?label=Download%20GUI&message=macOS&color=brightgreen)](https://github.com/singjc/arycal/releases/download/v0.2.0-alpha/arycal-gui-v0.2.0-alpha-arycal-gui-macos.tar.gz)
+[![Download GUI | Windows](https://img.shields.io/static/v1?label=Download%20GUI&message=Windows&color=brightgreen)](https://github.com/singjc/arycal/releases/download/v0.2.0-alpha/arycal-gui-v0.2.0-alpha-arycal-gui-windows.zip)
+[![Download GUI | Linux (glibc)](https://img.shields.io/static/v1?label=Download%20GUI&message=Linux%20%28glibc%29&color=brightgreen)](https://github.com/singjc/arycal/releases/download/v0.2.0-alpha/arycal-gui-v0.2.0-alpha-arycal-gui-linux-gnu.tar.gz)
 [![Download GUI | Ubuntu 18.04 (compat)](https://img.shields.io/static/v1?label=Download%20GUI&message=Ubuntu%2018.04&color=orange)](https://github.com/singjc/arycal/releases/download/v0.2.0-alpha/arycal-gui-v0.2.0-alpha-compat.tar.gz)
 
 
