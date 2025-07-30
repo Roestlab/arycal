@@ -3,11 +3,12 @@ FROM clux/muslrust:1.85.1-stable AS builder
 
 WORKDIR /app
 
-# Install only pkg-config & OpenSSL headers (musl-g++ is already bundled)
+# Install pkg-config, OpenSSL headers **and** the musl cross-compiler (C & C++)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       pkg-config \
-      libssl-dev && \
+      libssl-dev \
+      musl-tools && \
     rm -rf /var/lib/apt/lists/*
 
 # **Ensure cargo’s cc-rs finds a C++ compiler**
