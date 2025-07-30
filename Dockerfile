@@ -1,38 +1,26 @@
-# Stage 1: Build binaries with musl toolchain
-FROM rust:1.85-slim AS builder
+# Stage 1: Build both binaries with the MUSL toolchain
+FROM clux/muslrust:1.85.1-stable AS builder
 
 WORKDIR /app
 
-# 1. Install the MUSL toolchain, Clang/LLD for C++ support, pkg-config & OpenSSL headers
+# 1. Only install pkg-config & OpenSSL headers (musl-g++ is already present)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-      build-essential \
-      musl-tools \
-      musl-dev \
-      clang \
-      lld \
       pkg-config \
       libssl-dev && \
-    rustup target add x86_64-unknown-linux-musl && \
     rm -rf /var/lib/apt/lists/*
 
-# 2. Tell cc-rs / cargo what compilers to use for the MUSL target
-ENV CC=musl-gcc
-ENV CXX=clang++
-ENV CXXFLAGS="--target=x86_64-linux-musl --sysroot=/usr/x86_64-linux-musl"
-
-# 3. Copy just the workspace Cargo.toml & Cargo.lock (for cache invalidation),
-#    and then the entire crates/ directory so that cargo can see each crate’s src/
+# 2. Copy workspace manifests and the crates/ folder for caching
 COPY Cargo.toml ./
 COPY crates/ ./crates/
 
-# 4. Pre-fetch all dependencies for the MUSL target
+# 3. Pre-fetch everything for the MUSL target
 RUN cargo fetch --target x86_64-unknown-linux-musl
 
-# 5. Now copy the rest of your source (examples, scripts, README, etc.)
+# 4. Copy the rest of your source (including each crate’s src/)
 COPY . .
 
-# 6. Build your two binaries with optimizations & stripping
+# 5. Build optimized & stripped binaries
 ENV RUSTFLAGS="-C strip=symbols -C lto=yes"
 RUN cargo build --release --target x86_64-unknown-linux-musl --bin arycal
 RUN cargo build --release --target x86_64-unknown-linux-musl --bin arycal-gui
