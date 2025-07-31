@@ -29,7 +29,7 @@ RUN ln -sf "$(which musl-gcc)" /usr/local/bin/x86_64-unknown-linux-musl-gcc && \
 
 # Copy just the manifests and your crates folder so that Docker cache
 # can re-use `cargo fetch` when the code hasn’t changed.
-COPY Cargo.toml Cargo.lock ./
+COPY Cargo.toml ./
 COPY crates/ ./crates/
 
 # Pre-fetch all crates for the MUSL target
