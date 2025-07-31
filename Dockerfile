@@ -15,7 +15,7 @@ ENV CC=musl-gcc
 ENV CXX=musl-g++
 
 # 3) Copy your workspace manifest & crates folder and pre-fetch deps
-COPY Cargo.toml Cargo.lock ./
+COPY Cargo.toml ./
 COPY crates/ ./crates/
 RUN cargo fetch --target x86_64-unknown-linux-musl
 
