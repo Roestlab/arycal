@@ -5,6 +5,7 @@ WORKDIR /app
 # Install any system deps your crate needs (e.g. for MPI, GTK, etc.)
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      build-essential \
       pkg-config \
       libssl-dev \
       libopenmpi-dev openmpi-bin \
