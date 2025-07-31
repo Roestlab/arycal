@@ -1,50 +1,43 @@
-# 1) Builder stage: plain Ubuntu + Rust via rustup
+# Stage 1: Build both binaries with MUSL + Debian/Ubuntu toolchain
 FROM ubuntu:22.04 AS builder
 WORKDIR /app
 
-# Install system deps: curl for rustup, pkg-config, OpenSSL dev, C/C++ toolchains,
-# clang/clang++ (needed by DuckDB), and musl-gcc/g++
+# Install system deps: curl for rustup, pkg-config, OpenSSL dev,
+# build-essential (gcc/g++), and musl-tools for static linking
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       curl \
       build-essential \
       pkg-config \
       libssl-dev \
-      clang \
-      clang++ \
       musl-tools && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Rust toolchain
+# Install Rust 1.85.0 via rustup
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain 1.85.0
 ENV PATH="/root/.cargo/bin:${PATH}"
 
-# Add the MUSL target
-RUN rustup target add x86_64-unknown-linux-musl
+# Add the MUSL target and symlink compilers so cc-rs will find them
+RUN rustup target add x86_64-unknown-linux-musl && \
+    ln -sf "$(which musl-gcc)" /usr/local/bin/x86_64-unknown-linux-musl-gcc && \
+    ln -sf "$(which musl-g++)" /usr/local/bin/x86_64-unknown-linux-musl-g++
 
-# Create compiler symlinks so that cc-rs probes (e.g. libduckdb-sys) will find the
-# right compiler for the MUSL target triple.
-RUN ln -sf "$(which musl-gcc)" /usr/local/bin/x86_64-unknown-linux-musl-gcc && \
-    ln -sf "$(which musl-g++)"  /usr/local/bin/x86_64-unknown-linux-musl-g++
-
-# Copy just the manifests and your crates folder so that Docker cache
-# can re-use `cargo fetch` when the code hasn’t changed.
+# Copy just Cargo manifests & crates dir to leverage Docker cache
 COPY Cargo.toml ./
 COPY crates/ ./crates/
 
-# Pre-fetch all crates for the MUSL target
+# Pre-fetch dependencies for the MUSL target
 RUN cargo fetch --target x86_64-unknown-linux-musl
 
-# Now copy the rest of the code and build your binaries
+# Copy the rest of your source code
 COPY . .
 
-# Enable LTO and strip symbols for small static binaries
+# Build optimized, stripped static binaries
 ENV RUSTFLAGS="-C lto=thin -C strip=symbols"
-
 RUN cargo build --release --target x86_64-unknown-linux-musl --bin arycal
 RUN cargo build --release --target x86_64-unknown-linux-musl --bin arycal-gui
 
-# 2) Final “runtime” stage: slim Debian image with only the two statically-linked binaries
+# Stage 2: Minimal runtime image
 FROM debian:bullseye-slim
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
