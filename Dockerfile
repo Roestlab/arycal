@@ -21,7 +21,7 @@ RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain 1.85.0
 # 3) Make sure `~/.cargo/bin` is on PATH for subsequent steps
 ENV PATH="/root/.cargo/bin:${PATH}"
 
-ENV HOST_TRIPLE=x86_64-unknown-linux-gnu
+# ENV HOST_TRIPLE=x86_64-unknown-linux-gnu
 
 
 # 4) Add the MUSL target
@@ -39,8 +39,8 @@ COPY . .
 
 # Build optimized, stripped static binaries
 ENV RUSTFLAGS="-C lto=thin -C strip=symbols"
-RUN cargo build --release --target x86_64-unknown-linux-musl --bin arycal
-RUN cargo build --release --target x86_64-unknown-linux-musl --bin arycal-gui
+RUN cargo build --release --bin arycal
+RUN cargo build --release --bin arycal-gui
 
 # Stage 2: Minimal runtime image
 FROM debian:bullseye-slim
