@@ -10,6 +10,7 @@ RUN apt-get update && \
       build-essential \
       pkg-config \
       libssl-dev \
+      libstdc++-12-dev \
       musl-tools && \
     update-ca-certificates && \
     rm -rf /var/lib/apt/lists/*
@@ -19,6 +20,9 @@ RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain 1.85.0
 
 # 3) Make sure `~/.cargo/bin` is on PATH for subsequent steps
 ENV PATH="/root/.cargo/bin:${PATH}"
+
+ENV HOST_TRIPLE=x86_64-unknown-linux-gnu
+
 
 # 4) Add the MUSL target
 RUN rustup target add x86_64-unknown-linux-musl
