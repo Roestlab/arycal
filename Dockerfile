@@ -3,7 +3,7 @@ FROM rustembedded/cross:x86_64-unknown-linux-musl AS builder
 WORKDIR /app
 
 # Copy your workspace, fetch deps then build
-COPY Cargo.toml Cargo.lock ./
+COPY Cargo.toml ./
 COPY crates/ ./crates/
 RUN cargo fetch --target x86_64-unknown-linux-musl
 
