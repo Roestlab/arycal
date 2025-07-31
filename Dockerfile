@@ -1,48 +1,32 @@
-# Stage 1: Build both binaries with MUSL + Debian/Ubuntu toolchain
-FROM ubuntu:22.04 AS builder
+# Stage 1: compile inside a Rust container (uses glibc)
+FROM rust:1.85-slim AS builder
 WORKDIR /app
 
-# 1) Install system deps *including* ca-certificates
+# Install any system deps your crate needs (e.g. for MPI, GTK, etc.)
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      curl \
-      ca-certificates \
-      build-essential \
       pkg-config \
       libssl-dev \
-      libstdc++-12-dev \
-      musl-tools && \
-    update-ca-certificates && \
+      libopenmpi-dev openmpi-bin \
+      libx11-dev libxrandr-dev libxi-dev \
+      libgl1-mesa-dev libegl1-mesa libgtk-3-dev && \
     rm -rf /var/lib/apt/lists/*
 
-# 2) Install rustup (now that SSL works)
-RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain 1.85.0
-
-# 3) Make sure `~/.cargo/bin` is on PATH for subsequent steps
-ENV PATH="/root/.cargo/bin:${PATH}"
-
-# ENV HOST_TRIPLE=x86_64-unknown-linux-gnu
-
-
-# 4) Add the MUSL target
-RUN rustup target add x86_64-unknown-linux-musl
-
-# Copy just Cargo manifests & crates dir to leverage Docker cache
+# Bring in your Cargo.toml / lock first for caching
 COPY Cargo.toml ./
 COPY crates/ ./crates/
 
-# Pre-fetch dependencies for the MUSL target
-RUN cargo fetch --target x86_64-unknown-linux-musl
+# Pre-fetch deps for glibc target
+RUN cargo fetch
 
-# Copy the rest of your source code
+# Copy the rest of your code
 COPY . .
 
-# Build optimized, stripped static binaries
-ENV RUSTFLAGS="-C lto=thin -C strip=symbols"
+# Build optimized release binaries
 RUN cargo build --release --bin arycal
 RUN cargo build --release --bin arycal-gui
 
-# Stage 2: Minimal runtime image
+# Stage 2: slim runtime
 FROM debian:bullseye-slim
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -51,8 +35,8 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/arycal    /usr/local/bin/arycal
-COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/arycal-gui /usr/local/bin/arycal-gui
+COPY --from=builder /app/target/release/arycal    /usr/local/bin/arycal
+COPY --from=builder /app/target/release/arycal-gui /usr/local/bin/arycal-gui
 
 ENTRYPOINT ["arycal"]
 CMD ["--help"]
