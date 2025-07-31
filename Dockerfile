@@ -1,8 +1,10 @@
-# Stage 1: compile inside a Rust container (uses glibc)
+# syntax=docker/dockerfile:1.4
+
+# ─── Stage 1: build both binaries ────────────────────────────────────────
 FROM rust:1.85-slim AS builder
 WORKDIR /app
 
-# Install any system deps your crate needs (e.g. for MPI, GTK, etc.)
+# 1) Install any system deps your crate needs (MPI, GTK, etc.) plus a C++ toolchain
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       build-essential \
@@ -13,21 +15,27 @@ RUN apt-get update && \
       libgl1-mesa-dev libegl1-mesa libgtk-3-dev && \
     rm -rf /var/lib/apt/lists/*
 
-# Bring in your Cargo.toml / lock first for caching
-COPY Cargo.toml ./
+# 2) Copy just the Cargo manifests & crates folder so `cargo fetch` can cache
+COPY Cargo.toml .
 COPY crates/ ./crates/
 
-# Pre-fetch deps for glibc target
+# 3) Fetch all Rust dependencies (glibc target)
 RUN cargo fetch
 
-# Copy the rest of your code
+# 4) Copy the rest of your source code
 COPY . .
 
-# Build optimized release binaries
-RUN cargo build --release --bin arycal
-RUN cargo build --release --bin arycal-gui
+# 5) Build optimized, stripped release binaries into target/
+ENV RUSTFLAGS="-C lto=thin -C strip=symbols"
 
-# Stage 2: slim runtime
+# mount /app/target as a cache so it lives outside the build container
+RUN --mount=type=cache,target=/app/target \
+    cargo build --release --bin arycal
+
+RUN --mount=type=cache,target=/app/target \
+    cargo build --release --bin arycal-gui
+
+# ─── Stage 2: runtime ────────────────────────────────────────────────────
 FROM debian:bullseye-slim
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
