@@ -25,15 +25,17 @@ RUN cargo fetch
 # 4) Copy the rest of your source code
 COPY . .
 
-# 5) Build optimized, stripped release binaries into target/
-ENV RUSTFLAGS="-C lto=thin -C strip=symbols"
+# ─── Build & strip optimized release binaries ────────────────────────────
 
-# mount /app/target as a cache so it lives outside the build container
+# Build arycal
 RUN --mount=type=cache,target=/app/target \
-    cargo build --release --bin arycal
+    cargo build --release --bin arycal && \
+    strip target/release/arycal
 
+# Build arycal-gui
 RUN --mount=type=cache,target=/app/target \
-    cargo build --release --bin arycal-gui
+    cargo build --release --bin arycal-gui && \
+    strip target/release/arycal-gui
 
 # ─── Stage 2: runtime ────────────────────────────────────────────────────
 FROM debian:bullseye-slim
