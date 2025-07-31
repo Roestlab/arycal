@@ -2,25 +2,26 @@
 FROM ubuntu:22.04 AS builder
 WORKDIR /app
 
-# Install system deps: curl for rustup, pkg-config, OpenSSL dev,
-# build-essential (gcc/g++), and musl-tools for static linking
+# 1) Install system deps *including* ca-certificates
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       curl \
+      ca-certificates \
       build-essential \
       pkg-config \
       libssl-dev \
       musl-tools && \
+    update-ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Rust 1.85.0 via rustup
+# 2) Install rustup (now that SSL works)
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain 1.85.0
+
+# 3) Make sure `~/.cargo/bin` is on PATH for subsequent steps
 ENV PATH="/root/.cargo/bin:${PATH}"
 
-# Add the MUSL target and symlink compilers so cc-rs will find them
-RUN rustup target add x86_64-unknown-linux-musl && \
-    ln -sf "$(which musl-gcc)" /usr/local/bin/x86_64-unknown-linux-musl-gcc && \
-    ln -sf "$(which musl-g++)" /usr/local/bin/x86_64-unknown-linux-musl-g++
+# 4) Add the MUSL target
+RUN rustup target add x86_64-unknown-linux-musl
 
 # Copy just Cargo manifests & crates dir to leverage Docker cache
 COPY Cargo.toml ./
