@@ -1,9 +1,8 @@
 # Stage 1: Build both binaries with the MUSL toolchain
 FROM clux/muslrust:1.85.1-stable AS builder
-
 WORKDIR /app
 
-# Install pkg-config, OpenSSL headers **and** the musl cross-compiler (C & C++)
+# 1) Install only what we need for a static build
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       pkg-config \
@@ -11,31 +10,23 @@ RUN apt-get update && \
       musl-tools && \
     rm -rf /var/lib/apt/lists/*
 
-# **Ensure cargo’s cc-rs finds a C++ compiler**
+# 2) Tell cargo/cc-rs to use the musl wrappers
 ENV CC=musl-gcc
 ENV CXX=musl-g++
 
-# (Optional fallback symlink in case cc-rs still probes by target triple)
-RUN ln -sf "$(which musl-g++)" /usr/local/bin/x86_64-unknown-linux-musl-g++
-
-# Copy just the workspace manifest and crate directories, so `cargo fetch` can use the cache
-COPY Cargo.toml ./
+# 3) Copy your workspace manifest & crates folder and pre-fetch deps
+COPY Cargo.toml Cargo.lock ./
 COPY crates/ ./crates/
-
-# Pre-fetch deps for the MUSL target
 RUN cargo fetch --target x86_64-unknown-linux-musl
 
-# Now copy in the rest of the source (including each crate’s src/)
+# 4) Copy the rest of your source and build
 COPY . .
-
-# Build optimized & stripped binaries
 ENV RUSTFLAGS="-C strip=symbols -C lto=yes"
 RUN cargo build --release --target x86_64-unknown-linux-musl --bin arycal
 RUN cargo build --release --target x86_64-unknown-linux-musl --bin arycal-gui
 
-# Stage 2: Minimal runtime image
+# Stage 2: Minimal runtime
 FROM debian:bullseye-slim
-
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       procps \
@@ -44,8 +35,6 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-
-# Copy in the two static binaries
 COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/arycal    /app/arycal
 COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/arycal-gui /app/arycal-gui
 
